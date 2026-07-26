@@ -84,7 +84,7 @@ debian_read_disk_info() {
 }
 
 debian_resolve_sha_from_upstream() {
-  local base sumfile line
+  local base sumfile resolved
   base="$(dirname "$ISO_URL")"
   sumfile="$BACKEND_WORK_DIR/SHA256SUMS"
 
@@ -98,9 +98,13 @@ debian_resolve_sha_from_upstream() {
     wget -q -O "$sumfile" "$base/SHA256SUMS" || return 1
   fi
 
-  line="$(grep " $ISO_FILE_NAME" "$sumfile" || true)"
-  [[ -n "$line" ]] || return 1
-  printf '%s' "$line" | awk '{print $1}'
+  # Match the exact ISO filename only (avoid suffix collisions like .torrent/.jigdo)
+  resolved="$(awk -v f="$ISO_FILE_NAME" '
+    $2 == f { print $1; exit }
+    $2 == "*" f { print $1; exit }
+  ' "$sumfile")"
+  [[ -n "$resolved" ]] || return 1
+  printf '%s' "$resolved"
 }
 
 debian_verify() {
@@ -134,7 +138,11 @@ debian_verify() {
     step "Verifying source ISO SHA256"
     local actual
     actual="$(sha256sum "$ISO_SOURCE_PATH" | awk '{print $1}')"
-    [[ "$actual" == "$expected_sha" ]] || die "ISO SHA256 mismatch"
+    expected_sha="${expected_sha,,}"
+    actual="${actual,,}"
+    if [[ "$actual" != "$expected_sha" ]]; then
+      die "ISO SHA256 mismatch (expected: $expected_sha, actual: $actual). Remove cached ISO and rerun: rm -f '$ISO_SOURCE_PATH'"
+    fi
     printf '%s  %s\n' "$actual" "$ISO_FILE_NAME" >"$ARTIFACTS_DIR/source.iso.sha256"
   else
     warn "DEBIAN_ISO_SHA256 not set; checksum verification skipped"
