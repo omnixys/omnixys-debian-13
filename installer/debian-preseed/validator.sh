@@ -223,11 +223,3 @@ debian_validate() {
 
   [[ "$INSTALLER" == "debian-preseed" ]] || die "INSTALLER must be debian-preseed for this backend"
 }
-  --username admin \
-  --generate-password \
-LE--output identity.envbianian_validate_locKEYBOARtessh_policy
-
-  ifvaliDOMAIN
-D
-antethen
-uire
