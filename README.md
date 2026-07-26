@@ -185,6 +185,17 @@ Included workflows:
 - `release.yml`: published release asset builder (`.iso`, `.sha256`, `.sha512`, `build-info.json`, `sbom.cdx.json`)
 - `nightly.yml`: daily nightly ISO artifacts and nightly pre-release updates
 
+Release and nightly builds require these GitHub Actions secrets:
+
+- `USERNAME`
+- `PASSWORD`
+- `FULLNAME`
+- `HOSTNAME`
+- `SSH_PUBLIC_KEY`
+- `DOMAIN`
+
+These values are injected into the temporary CI config at runtime and override the corresponding profile values for release/nightly builds.
+
 ## Download Channels
 
 - Stable Releases: GitHub Releases assets
