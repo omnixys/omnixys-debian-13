@@ -45,7 +45,7 @@ d-i partman/confirm_nooverwrite boolean true
 ### Packages
 tasksel tasksel/first multiselect __TASKSEL_FIRST__
 d-i pkgsel/include string __PKGSEL_INCLUDE__
-d-i pkgsel/upgrade select safe-upgrade
+d-i pkgsel/upgrade select __PKGSEL_UPGRADE__
 d-i pkgsel/update-policy select none
 d-i pkgsel/install-language-support boolean false
 
@@ -58,4 +58,4 @@ d-i preseed/late_command string __LATE_COMMAND__
 
 ### Finish
 d-i cdrom-detect/eject boolean true
-d-i finish-install/reboot_in_progress note
+__FINISH_ACTION__

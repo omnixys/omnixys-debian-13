@@ -145,6 +145,9 @@ debian_validate() {
   debian_validate_bool INSTALL_UPDATES
   debian_validate_bool SSH_PASSWORD_AUTH
   debian_validate_bool REBOOT_AFTER_INSTALL
+  if [[ -n "${SUDO_NOPASSWD:-}" ]]; then
+    debian_validate_bool SUDO_NOPASSWD
+  fi
 
   [[ "$INSTALLER" == "debian-preseed" ]] || die "INSTALLER must be debian-preseed for this backend"
 }

@@ -8,13 +8,14 @@ debian_render_template() {
   local template="$1"
   local output="$2"
 
-  local esc_fullname esc_ssh_key esc_late_command esc_tasksel esc_pkgsel esc_anna_modules
+  local esc_fullname esc_ssh_key esc_late_command esc_tasksel esc_pkgsel esc_anna_modules esc_finish_action
   esc_fullname="$(escape_sed_replacement "$FULLNAME")"
   esc_ssh_key="$(escape_sed_replacement "${SSH_PUBLIC_KEY:-}")"
   esc_late_command="$(escape_sed_replacement "$LATE_COMMAND")"
   esc_tasksel="$(escape_sed_replacement "$TASKSEL_FIRST")"
   esc_pkgsel="$(escape_sed_replacement "$PKGSEL_INCLUDE")"
   esc_anna_modules="$(escape_sed_replacement "$ANNA_MODULES")"
+  esc_finish_action="$(escape_sed_replacement "$FINISH_ACTION")"
 
   sed \
     -e "s|__HOSTNAME__|$HOSTNAME|g" \
@@ -39,8 +40,10 @@ debian_render_template() {
     -e "s|__INSTALL_STANDARD_UTILITIES__|$INSTALL_STANDARD_UTILITIES|g" \
     -e "s|__TASKSEL_FIRST__|$esc_tasksel|g" \
     -e "s|__PKGSEL_INCLUDE__|$esc_pkgsel|g" \
+    -e "s|__PKGSEL_UPGRADE__|$PKGSEL_UPGRADE|g" \
     -e "s|__ANNA_MODULES__|$esc_anna_modules|g" \
     -e "s|__LATE_COMMAND__|$esc_late_command|g" \
+    -e "s|__FINISH_ACTION__|$esc_finish_action|g" \
     "$template" >"$output"
 }
 
@@ -74,6 +77,7 @@ debian_compose_anna_modules() {
 debian_compose_late_command() {
   local cmd
   local ssh_password_auth_value="no"
+  local sudo_nopasswd="${SUDO_NOPASSWD:-true}"
   if [[ "$SSH_PASSWORD_AUTH" == "true" ]]; then
     ssh_password_auth_value="yes"
   fi
@@ -81,6 +85,14 @@ debian_compose_late_command() {
   cmd="in-target sed -ri 's|^#?PermitRootLogin[[:space:]]+.*|PermitRootLogin ${SSH_PERMIT_ROOT_LOGIN}|' /etc/ssh/sshd_config; "
   cmd+="in-target sed -ri 's|^#?PasswordAuthentication[[:space:]]+.*|PasswordAuthentication ${ssh_password_auth_value}|' /etc/ssh/sshd_config; "
   cmd+="in-target systemctl enable ssh || true"
+  cmd+="; in-target apt-get update"
+  cmd+="; in-target DEBIAN_FRONTEND=noninteractive apt-get -y upgrade"
+
+  if [[ "$sudo_nopasswd" == "true" ]]; then
+    cmd+="; in-target sh -c 'printf \"%s\\n\" \"${USERNAME} ALL=(ALL) NOPASSWD:ALL\" > /etc/sudoers.d/90-${USERNAME}-nopasswd'"
+    cmd+="; in-target chmod 440 /etc/sudoers.d/90-${USERNAME}-nopasswd"
+    cmd+="; in-target visudo -cf /etc/sudoers.d/90-${USERNAME}-nopasswd"
+  fi
 
   if [[ -n "${SSH_PUBLIC_KEY:-}" ]]; then
     cmd+="; in-target mkdir -p /home/${USERNAME}/.ssh"
@@ -91,6 +103,22 @@ debian_compose_late_command() {
   fi
 
   printf '%s' "$cmd"
+}
+
+debian_compose_pkgsel_upgrade() {
+  if [[ "$INSTALL_UPDATES" == "true" ]]; then
+    echo "safe-upgrade"
+  else
+    echo "none"
+  fi
+}
+
+debian_compose_finish_action() {
+  if [[ "$REBOOT_AFTER_INSTALL" == "true" ]]; then
+    echo "d-i finish-install/reboot_in_progress note"
+  else
+    echo "d-i debian-installer/exit/halt boolean true"
+  fi
 }
 
 debian_partition_mode_values() {
@@ -141,7 +169,9 @@ debian_render() {
   debian_partition_mode_values
   TASKSEL_FIRST="$(debian_compose_tasksel)"
   PKGSEL_INCLUDE="$(debian_compose_pkgsel)"
+  PKGSEL_UPGRADE="$(debian_compose_pkgsel_upgrade)"
   ANNA_MODULES="$(debian_compose_anna_modules)"
+  FINISH_ACTION="$(debian_compose_finish_action)"
   LATE_COMMAND="$(debian_compose_late_command)"
 
   step "debian-preseed render: generating preseed.cfg"
