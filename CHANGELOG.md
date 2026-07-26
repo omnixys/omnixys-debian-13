@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.0](https://github.com/omnixys/omnixys-debian-13/compare/v1.1.0...v1.2.0) (2026-07-26)
+
+
+### Features
+
+* **installer:** add safe target disk modes for preseed ([767ba2b](https://github.com/omnixys/omnixys-debian-13/commit/767ba2bc3ba45cf3e82f43738f45e973ba3a8c50))
+
+
+### Bug Fixes
+
+* **release:** publish iso assets on tag push ([fedb8d8](https://github.com/omnixys/omnixys-debian-13/commit/fedb8d897b271f60690841484d0c2db9271b4b46))
+
 ## [1.1.0](https://github.com/omnixys/omnixys-debian-13/compare/v1.0.0...v1.1.0) (2026-07-26)
 
 
