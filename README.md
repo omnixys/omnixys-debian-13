@@ -119,6 +119,10 @@ Included profile examples:
 - `configs/lab.env`
 - `configs/vm.env`
 
+Production deployment guidance:
+
+- `docs/production-hardening.md`
+
 ## Secure Boot Status
 
 - BIOS: remaster path implemented and patched via boot config update
