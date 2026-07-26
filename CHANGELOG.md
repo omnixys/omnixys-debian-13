@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.3.0](https://github.com/omnixys/omnixys-debian-13/compare/1.2.0...v1.3.0) (2026-07-26)
+
+
+### Features
+
+* **installer:** add runtime identity env override ([1edc7dd](https://github.com/omnixys/omnixys-debian-13/commit/1edc7ddb1d3a0520e18a3022650dc4e4c94e25ed))
+* **tools:** add identity env generator ([50a75c5](https://github.com/omnixys/omnixys-debian-13/commit/50a75c591b8120c70d98292d9d532fafc995e25c))
+
+
+### Bug Fixes
+
+* **ci:** use unprefixed workflow secret names ([8261fdc](https://github.com/omnixys/omnixys-debian-13/commit/8261fdc5b19c00dd677f7502321a474e281ab173))
+* **config:** make domain optional ([6946400](https://github.com/omnixys/omnixys-debian-13/commit/694640092e8d3656d57c56a61cc80b18a8f614fa))
+
 ## [1.2.0](https://github.com/omnixys/omnixys-debian-13/compare/v1.1.0...v1.2.0) (2026-07-26)
 
 
