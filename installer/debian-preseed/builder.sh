@@ -202,6 +202,9 @@ debian_extract_iso_tree() {
 
   step "Extracting source ISO tree"
   run_cmd xorriso -osirrox on -indev "$ISO_SOURCE_PATH" -extract / "$target_dir"
+
+  # Files extracted from ISO can be read-only; make work tree writable for patching.
+  run_cmd chmod -R u+w "$target_dir"
 }
 
 debian_package() {
