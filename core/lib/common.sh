@@ -23,7 +23,8 @@ log() {
   local color="$2"
   shift 2
   local msg="$*"
-  local line="[$(timestamp)] [$level] $msg"
+  local line
+  line="[$(timestamp)] [$level] $msg"
   printf '%b%s%b\n' "$color" "$line" "$C_RESET"
   if [[ -n "${LOG_FILE:-}" ]]; then
     printf '%s\n' "$line" >>"$LOG_FILE"
