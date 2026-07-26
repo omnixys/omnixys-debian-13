@@ -49,6 +49,43 @@ parse_args() {
   done
 }
 
+validate_config_schema() {
+  local config_file="$1"
+  local schema_file="$2"
+
+  [[ -f "$schema_file" ]] || {
+    warn "Schema file not found: $schema_file"
+    return 0
+  }
+
+  local config_keys_file expected_keys_file
+  config_keys_file="$(mktemp)"
+  expected_keys_file="$(mktemp)"
+
+  awk -F= '/^[A-Za-z_][A-Za-z0-9_]*=/{print $1}' "$config_file" | sort -u >"$config_keys_file"
+  grep -E '^[A-Za-z_][A-Za-z0-9_]*$' "$schema_file" | sort -u >"$expected_keys_file"
+
+  local missing unknown
+  missing="$(comm -23 "$expected_keys_file" "$config_keys_file" || true)"
+  unknown="$(comm -13 "$expected_keys_file" "$config_keys_file" || true)"
+
+  if [[ -n "$missing" ]]; then
+    warn "Config migration hint: missing keys detected"
+    while IFS= read -r key; do
+      [[ -n "$key" ]] && warn "  missing: $key"
+    done <<<"$missing"
+  fi
+
+  if [[ -n "$unknown" ]]; then
+    warn "Config migration hint: unknown keys detected"
+    while IFS= read -r key; do
+      [[ -n "$key" ]] && warn "  unknown: $key"
+    done <<<"$unknown"
+  fi
+
+  rm -f "$config_keys_file" "$expected_keys_file"
+}
+
 print_version() {
   local commit="unknown"
   if command -v git >/dev/null 2>&1; then
@@ -89,6 +126,9 @@ main() {
   INSTALLER="${INSTALLER:-debian-preseed}"
   load_backend "$INSTALLER"
   readiness_ok "Backend loaded: $INSTALLER"
+
+  validate_config_schema "$CONFIG_FILE" "$ROOT_DIR/installer/$INSTALLER/schema.keys"
+  readiness_ok "Config schema checked"
 
   run_hook_dir "$ROOT_DIR/hooks/pre-build"
   run_modules_phase "pre-build"

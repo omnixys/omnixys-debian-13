@@ -15,6 +15,7 @@
 ## Unattended Install
 - [ ] BIOS boot path reaches unattended installer.
 - [ ] UEFI boot path reaches unattended installer.
+- [ ] Boot smoke workflow passes in GitHub Actions (`boot-tests.yml`).
 - [ ] No interactive prompts for locale/user/partition steps.
 - [ ] Installed system has expected hostname/user/ssh policy.
 

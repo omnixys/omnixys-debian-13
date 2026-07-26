@@ -83,6 +83,7 @@ Build output:
 ## Key Configuration
 
 Framework level:
+- `CONFIG_SCHEMA_VERSION=1`
 - `INSTALLER=debian-preseed`
 - `ARCH=amd64`
 - `INSTALLER_VERSION=1.0.0`
@@ -129,6 +130,8 @@ Important note:
 - ISO/source verification passed
 - Builder passed
 - Ready to build
+
+Additionally, config schema warnings are printed when expected keys are missing or unknown keys are present.
 
 ## Modules and Hooks
 

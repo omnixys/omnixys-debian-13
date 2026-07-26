@@ -1,0 +1,65 @@
+name: Boot Tests
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-iso:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tooling
+        run: sudo apt-get update; sudo apt-get install -y xorriso wget curl openssl qemu-system-x86 ovmf
+      - name: Build ISO
+        run: |
+          chmod +x build.sh
+          ./build.sh --config configs/vm.env
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: remastered-iso
+          path: |
+            output/omnixys-debian-13-auto.iso
+            output/omnixys-debian-13-auto.iso.sha256
+
+  boot-bios:
+    needs: build-iso
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install qemu
+        run: sudo apt-get update; sudo apt-get install -y qemu-system-x86
+      - name: Download ISO artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: remastered-iso
+          path: output
+      - name: BIOS boot smoke
+        run: |
+          chmod +x tests/boot-bios-smoke.sh
+          ./tests/boot-bios-smoke.sh output/omnixys-debian-13-auto.iso artifacts/boot-tests
+
+  boot-uefi:
+    needs: build-iso
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install qemu and ovmf
+        run: sudo apt-get update; sudo apt-get install -y qemu-system-x86 ovmf
+      - name: Download ISO artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: remastered-iso
+          path: output
+      - name: Resolve OVMF path
+        id: ovmf
+        run: |
+          if [ -f /usr/share/OVMF/OVMF_CODE.fd ]; then
+            echo "path=/usr/share/OVMF/OVMF_CODE.fd" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=/usr/share/OVMF/OVMF_CODE_4M.fd" >> "$GITHUB_OUTPUT"
+          fi
+      - name: UEFI boot smoke
+        run: |
+          chmod +x tests/boot-uefi-smoke.sh
+          ./tests/boot-uefi-smoke.sh output/omnixys-debian-13-auto.iso "${{ steps.ovmf.outputs.path }}" artifacts/boot-tests
