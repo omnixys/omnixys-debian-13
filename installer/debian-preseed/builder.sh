@@ -59,9 +59,12 @@ debian_build() {
 
   step "Downloading Debian ISO"
   if command -v curl >/dev/null 2>&1; then
-    run_cmd curl -fL "$ISO_URL" -o "$ISO_SOURCE_PATH"
+    if ! run_cmd curl -fL --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 --max-time 0 "$ISO_URL" -o "$ISO_SOURCE_PATH"; then
+      warn "curl download failed, retrying with wget fallback"
+      run_cmd wget --tries=5 --waitretry=3 --timeout=20 -O "$ISO_SOURCE_PATH" "$ISO_URL"
+    fi
   else
-    run_cmd wget -O "$ISO_SOURCE_PATH" "$ISO_URL"
+    run_cmd wget --tries=5 --waitretry=3 --timeout=20 -O "$ISO_SOURCE_PATH" "$ISO_URL"
   fi
 }
 
