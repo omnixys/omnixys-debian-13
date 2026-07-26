@@ -9,6 +9,7 @@ Each installer backend must implement these shell functions in installer/<name>/
 - package
 
 Contract:
+
 - Exit code 0 for success.
 - Non-zero for failure with actionable error output.
 - Must respect DRY_RUN=true.

@@ -3,6 +3,7 @@
 Omnixys Installer Framework is a modular installer framework with an installer-agnostic core.
 
 Version 1.0 focus:
+
 - Fully implement Debian 13 unattended installation backend using Preseed.
 - Keep core generic so additional backends can be added later without core rewrites.
 
@@ -38,6 +39,7 @@ omnixys-debian-13/
 - Extensibility
 
 Core rules:
+
 - Core must not contain backend-specific logic.
 - Installer backend is selected through config.
 - New features should be integrated through backend APIs, modules, hooks, or plugins.
@@ -45,6 +47,7 @@ Core rules:
 ## Backend API
 
 Each backend implements:
+
 - `validate()`
 - `render()`
 - `build()`
@@ -66,6 +69,7 @@ nano config.env
 ```
 
 Build output:
+
 - `output/omnixys-debian-13-auto.iso`
 - `output/omnixys-debian-13-auto.iso.sha256`
 - `logs/build.log`
@@ -83,18 +87,21 @@ Build output:
 ## Key Configuration
 
 Framework level:
+
 - `CONFIG_SCHEMA_VERSION=1`
 - `INSTALLER=debian-preseed`
 - `ARCH=amd64`
 - `INSTALLER_VERSION=1.0.0`
 
 Debian backend:
+
 - `DEBIAN_MAJOR=13`
 - `DEBIAN_RELEASE=stable`
 - `DEBIAN_ISO_URL=` (optional override)
 - `DEBIAN_ISO_SHA256=` (recommended)
 
 Install behavior:
+
 - `PARTITION_MODE=erase|lvm|custom`
 - `FILESYSTEM=ext4|xfs|btrfs`
 - `INSTALL_OPENSSH=true|false`
@@ -106,6 +113,7 @@ Install behavior:
 ## Profiles
 
 Included profile examples:
+
 - `configs/homelab.env`
 - `configs/production.env`
 - `configs/lab.env`
@@ -118,12 +126,14 @@ Included profile examples:
 - Secure Boot: intended to preserve original signed EFI chain via xorriso replay; requires environment test validation
 
 Important note:
+
 - The current implementation injects generated preseed and metadata into the output ISO and patches common GRUB/ISOLINUX paths.
 - Final acceptance still requires BIOS/UEFI/Secure-Boot execution tests in CI/VM.
 
 ## Dry-Run Readiness Report
 
 `./build.sh --dry-run` emits a readiness checklist, including:
+
 - Config valid
 - Preseed generated
 - ISO source resolved
@@ -138,6 +148,7 @@ Additionally, config schema warnings are printed when expected keys are missing 
 Modules are feature extensions in `modules/`.
 
 Hooks are global lifecycle injection points:
+
 - `hooks/pre-build`
 - `hooks/post-build`
 - `hooks/pre-install`
@@ -148,12 +159,14 @@ Hooks are global lifecycle injection points:
 Place trusted local plugins in `plugins/`.
 
 Examples:
+
 - `plugins/my-company-installer/`
 - `plugins/my-lab-installer/`
 
 ## CI and Release
 
 Included workflows:
+
 - `ci.yml`: ShellCheck + dry-run
 - `release.yml`: tag-based release scaffold
 
@@ -161,4 +174,3 @@ Included workflows:
 
 When disk installation is fully active, settings like `ERASE_DISK=true` will destroy data on target disks.
 Always test in VM first.
-
