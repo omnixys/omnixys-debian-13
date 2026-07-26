@@ -1,8 +1,9 @@
 name: Release
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       tag:
@@ -31,8 +32,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${{ github.event_name }}" == "release" ]]; then
-            tag="${{ github.event.release.tag_name }}"
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            tag="${GITHUB_REF_NAME}"
           elif [[ -n "${{ inputs.tag }}" ]]; then
             tag="${{ inputs.tag }}"
           else
@@ -117,7 +118,7 @@ jobs:
           path: ${{ steps.assets.outputs.glob }}
           retention-days: 30
       - name: Publish GitHub release assets
-        if: github.event_name == 'release' || inputs.tag != ''
+        if: github.event_name == 'push' || inputs.tag != ''
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
