@@ -91,6 +91,34 @@ debian_validate_target_disk() {
   fi
 }
 
+debian_validate_target_disk_mode() {
+  TARGET_DISK_MODE="${TARGET_DISK_MODE:-manual}"
+  case "$TARGET_DISK_MODE" in
+    auto|by-id|manual) ;;
+    *) die "Unsupported TARGET_DISK_MODE: $TARGET_DISK_MODE (expected auto|by-id|manual)" ;;
+  esac
+}
+
+debian_validate_target_disk_by_id() {
+  [[ -n "${TARGET_DISK_BY_ID:-}" ]] || die "TARGET_DISK_BY_ID is required when TARGET_DISK_MODE=by-id"
+  [[ "$TARGET_DISK_BY_ID" =~ ^/dev/disk/by-id/ ]] || die "TARGET_DISK_BY_ID must start with /dev/disk/by-id/: $TARGET_DISK_BY_ID"
+}
+
+debian_validate_target_disk_config() {
+  debian_validate_target_disk_mode
+  case "$TARGET_DISK_MODE" in
+    auto)
+      ;;
+    by-id)
+      debian_validate_target_disk_by_id
+      ;;
+    manual)
+      debian_require_var TARGET_DISK
+      debian_validate_target_disk
+      ;;
+  esac
+}
+
 debian_validate_bool() {
   local var_name="$1"
   local normalized
@@ -115,7 +143,6 @@ debian_validate() {
   debian_require_var LOCALE
   debian_require_var KEYBOARD
   debian_require_var TIMEZONE
-  debian_require_var TARGET_DISK
   debian_require_var PARTITION_MODE
   debian_require_var ERASE_DISK
   debian_require_var FILESYSTEM
@@ -135,7 +162,7 @@ debian_validate() {
   debian_validate_filesystem
   debian_validate_partition_mode
   debian_validate_password
-  debian_validate_target_disk
+  debian_validate_target_disk_config
   debian_validate_mirror
   debian_validate_ssh_policy
 

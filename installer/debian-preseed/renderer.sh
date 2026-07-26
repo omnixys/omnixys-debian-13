@@ -8,7 +8,7 @@ debian_render_template() {
   local template="$1"
   local output="$2"
 
-  local esc_fullname esc_ssh_key esc_late_command esc_tasksel esc_pkgsel esc_anna_modules esc_finish_action
+  local esc_fullname esc_ssh_key esc_late_command esc_tasksel esc_pkgsel esc_anna_modules esc_finish_action esc_disk_early_command
   esc_fullname="$(escape_sed_replacement "$FULLNAME")"
   esc_ssh_key="$(escape_sed_replacement "${SSH_PUBLIC_KEY:-}")"
   esc_late_command="$(escape_sed_replacement "$LATE_COMMAND")"
@@ -16,6 +16,7 @@ debian_render_template() {
   esc_pkgsel="$(escape_sed_replacement "$PKGSEL_INCLUDE")"
   esc_anna_modules="$(escape_sed_replacement "$ANNA_MODULES")"
   esc_finish_action="$(escape_sed_replacement "$FINISH_ACTION")"
+  esc_disk_early_command="$(escape_sed_replacement "$DISK_EARLY_COMMAND")"
 
   sed \
     -e "s|__HOSTNAME__|$HOSTNAME|g" \
@@ -28,7 +29,8 @@ debian_render_template() {
     -e "s|__LOCALE__|$LOCALE|g" \
     -e "s|__KEYBOARD__|$KEYBOARD|g" \
     -e "s|__TIMEZONE__|$TIMEZONE|g" \
-    -e "s|__TARGET_DISK__|$TARGET_DISK|g" \
+    -e "s|__TARGET_DISK__|$RESOLVED_TARGET_DISK|g" \
+    -e "s|__DISK_EARLY_COMMAND__|$esc_disk_early_command|g" \
     -e "s|__FILESYSTEM__|$FILESYSTEM|g" \
     -e "s|__PARTMAN_METHOD__|$PARTMAN_METHOD|g" \
     -e "s|__PARTMAN_RECIPE__|$PARTMAN_RECIPE|g" \
@@ -137,6 +139,42 @@ debian_partition_mode_values() {
   esac
 }
 
+debian_compose_disk_early_command_auto() {
+  cat <<'EOF'
+INSTALL_DEVICE="$(awk '$2 == "/cdrom" {print $1; exit}' /proc/mounts)"; INSTALL_PARENT="$INSTALL_DEVICE"; case "$INSTALL_PARENT" in /dev/nvme*n*p[0-9]*|/dev/mmcblk*p[0-9]*) INSTALL_PARENT="${INSTALL_PARENT%p[0-9]*}" ;; /dev/*[0-9]) INSTALL_PARENT="${INSTALL_PARENT%[0-9]*}" ;; esac; CANDIDATES=""; for DISK in $(list-devices disk); do BASE="${DISK#/dev/}"; [ "$DISK" = "$INSTALL_PARENT" ] && continue; [ -r "/sys/block/$BASE/removable" ] || continue; [ "$(cat "/sys/block/$BASE/removable" 2>/dev/null)" = "0" ] || continue; CANDIDATES="${CANDIDATES}${DISK}\n"; done; COUNT="$(printf "%b" "$CANDIDATES" | sed '/^$/d' | wc -l | tr -d ' ')"; if [ "$COUNT" -ne 1 ]; then echo "omnixys: auto disk detect failed (install media: ${INSTALL_PARENT:-unknown}, candidates: $(printf "%b" "$CANDIDATES" | tr '\n' ' '))" >/var/log/omnixys-disk-detect.log; exit 1; fi; TARGET="$(printf "%b" "$CANDIDATES" | sed '/^$/d' | head -n1)"; [ -n "$TARGET" ] || exit 1; debconf-set partman-auto/disk "$TARGET"
+EOF
+}
+
+debian_compose_disk_early_command_by_id() {
+  cat <<EOF
+TARGET="\$(readlink -f "$TARGET_DISK_BY_ID" 2>/dev/null || true)"; [ -b "\$TARGET" ] || { echo "omnixys: by-id target not resolvable: $TARGET_DISK_BY_ID" >/var/log/omnixys-disk-detect.log; exit 1; }; debconf-set partman-auto/disk "\$TARGET"
+EOF
+}
+
+debian_resolve_target_disk() {
+  TARGET_DISK_MODE="${TARGET_DISK_MODE:-manual}"
+  case "$TARGET_DISK_MODE" in
+    manual)
+      RESOLVED_TARGET_DISK="$TARGET_DISK"
+      DISK_EARLY_COMMAND="true"
+      ;;
+    by-id)
+      RESOLVED_TARGET_DISK="$TARGET_DISK_BY_ID"
+      DISK_EARLY_COMMAND="$(debian_compose_disk_early_command_by_id)"
+      ;;
+    auto)
+      RESOLVED_TARGET_DISK="/dev/omnixys-auto-detect"
+      DISK_EARLY_COMMAND="$(debian_compose_disk_early_command_auto)"
+      ;;
+    *)
+      die "Unsupported TARGET_DISK_MODE in renderer: $TARGET_DISK_MODE"
+      ;;
+  esac
+
+  info "Disk mode: $TARGET_DISK_MODE"
+  info "Preseed partman-auto/disk value: $RESOLVED_TARGET_DISK"
+}
+
 debian_render_metadata() {
   local out="$1"
   local commit="unknown"
@@ -167,6 +205,7 @@ debian_render() {
   PASSWORD_HASH="$(openssl passwd -6 "$PASSWORD")"
 
   debian_partition_mode_values
+  debian_resolve_target_disk
   TASKSEL_FIRST="$(debian_compose_tasksel)"
   PKGSEL_INCLUDE="$(debian_compose_pkgsel)"
   PKGSEL_UPGRADE="$(debian_compose_pkgsel_upgrade)"

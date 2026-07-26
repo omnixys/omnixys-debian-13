@@ -102,6 +102,9 @@ Debian backend:
 
 Install behavior:
 
+- `TARGET_DISK_MODE=auto|by-id|manual`
+- `TARGET_DISK_BY_ID=/dev/disk/by-id/...` (required for `by-id`)
+- `TARGET_DISK=/dev/...` (required for `manual`)
 - `PARTITION_MODE=erase|lvm|custom`
 - `FILESYSTEM=ext4|xfs|btrfs`
 - `INSTALL_OPENSSH=true|false`
@@ -207,3 +210,22 @@ Release process note:
 
 When disk installation is fully active, settings like `ERASE_DISK=true` will destroy data on target disks.
 Always test in VM first.
+
+## Disk Selection Modes
+
+The Debian backend supports three disk selection modes:
+
+- `auto` (recommended default): installer runtime detects candidate disks, excludes the install medium, and continues only if exactly one non-removable disk is found.
+- `by-id`: uses a stable path under `/dev/disk/by-id/...` and resolves it during installer startup.
+- `manual`: uses a fixed `/dev/...` path from config.
+
+Safety behavior:
+
+- In `auto`, the installer never guesses when multiple candidates exist.
+- If `auto` finds zero or more than one candidate disk, installation stops before partitioning.
+- Existing configs without `TARGET_DISK_MODE` remain compatible and behave like `manual`.
+
+## USB Write Mode (Important)
+
+For physical installs, write the generated ISO in raw/block mode (for example Rufus DD mode or balenaEtcher).
+Using extraction-style ISO modes can break `cdrom-detect` and produce "not a Debian CD" errors.
