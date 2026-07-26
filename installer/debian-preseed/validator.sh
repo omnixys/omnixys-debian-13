@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 
 debian_check_tooling() {
-  require_commands xorriso awk sed grep openssl
+  require_commands awk sed grep openssl
+
+  if [[ "$DRY_RUN" != "true" ]]; then
+    require_commands xorriso
+  fi
+
   if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
     die "Either curl or wget is required"
   fi
