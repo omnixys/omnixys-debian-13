@@ -1,0 +1,61 @@
+name: Nightly ISO
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  nightly-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - backend: debian-preseed
+            config: configs/vm.env
+            distro: debian-13
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tooling
+        run: sudo apt-get update; sudo apt-get install -y xorriso wget curl openssl
+      - name: Prepare nightly config
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "${{ matrix.config }}" .nightly.env
+          sed -i "s/^INSTALLER_VERSION=.*/INSTALLER_VERSION=nightly-${GITHUB_RUN_NUMBER}/" .nightly.env
+      - name: Build ISO
+        run: |
+          chmod +x build.sh
+          ./build.sh --config .nightly.env
+      - name: Prepare nightly assets
+        id: assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/nightly
+          iso_name="omnixys-${{ matrix.distro }}-nightly.iso"
+          iso_path="artifacts/nightly/${iso_name}"
+          cp output/omnixys-debian-13-auto.iso "$iso_path"
+          sha256sum "$iso_path" > "${iso_path}.sha256"
+          echo "glob=artifacts/nightly/${iso_name}*" >> "$GITHUB_OUTPUT"
+      - name: Upload nightly workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-${{ matrix.backend }}-${{ github.run_number }}
+          path: ${{ steps.assets.outputs.glob }}
+          retention-days: 14
+      - name: Publish nightly pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Nightly Build
+          prerelease: true
+          make_latest: false
+          body: |
+            Automated nightly build from commit ${{ github.sha }}.
+          files: ${{ steps.assets.outputs.glob }}
+          fail_on_unmatched_files: true

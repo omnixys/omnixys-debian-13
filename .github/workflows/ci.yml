@@ -85,3 +85,34 @@ jobs:
         run: |
           qemu-system-x86_64 --version
           test -f /usr/share/OVMF/OVMF_CODE.fd || test -f /usr/share/OVMF/OVMF_CODE_4M.fd
+
+  build-artifact:
+    needs: test-iso
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - backend: debian-preseed
+            config: configs/vm.env
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tooling
+        run: sudo apt-get update; sudo apt-get install -y xorriso wget curl openssl
+      - name: Build ISO
+        run: |
+          chmod +x build.sh
+          ./build.sh --config "${{ matrix.config }}"
+      - name: Prepare artifact payload
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::7}"
+          mkdir -p artifacts/ci
+          iso_name="omnixys-${{ matrix.backend }}-${short_sha}.iso"
+          cp output/omnixys-debian-13-auto.iso "artifacts/ci/${iso_name}"
+          sha256sum "artifacts/ci/${iso_name}" > "artifacts/ci/${iso_name}.sha256"
+      - name: Upload CI ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-${{ matrix.backend }}-${{ github.sha }}
+          path: artifacts/ci/*
+          retention-days: 7

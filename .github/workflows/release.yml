@@ -1,26 +1,134 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to attach assets to (for manual reruns)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
 
 jobs:
-  release:
+  release-assets:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - backend: debian-preseed
+            config: configs/production.env
+            distro: debian-13
     steps:
       - uses: actions/checkout@v4
-      - name: Prepare scripts
-        run: chmod +x build.sh
-      - name: Build dry-run metadata
-        run: ./build.sh --config configs/vm.env --dry-run
-      - name: Package release metadata
+      - name: Install build tooling
+        run: sudo apt-get update; sudo apt-get install -y xorriso wget curl openssl jq
+      - name: Resolve release version
+        id: version
+        shell: bash
         run: |
-          sha256sum CHANGELOG.md > CHANGELOG.md.sha256
-      - name: Create GitHub release
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            tag="${{ github.event.release.tag_name }}"
+          elif [[ -n "${{ inputs.tag }}" ]]; then
+            tag="${{ inputs.tag }}"
+          else
+            echo "Manual run requires inputs.tag" >&2
+            exit 1
+          fi
+          version="${tag#v}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+      - name: Prepare release config
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "${{ matrix.config }}" .release.env
+          sed -i "s/^INSTALLER_VERSION=.*/INSTALLER_VERSION=${{ steps.version.outputs.version }}/" .release.env
+      - name: Build ISO
+        run: |
+          chmod +x build.sh
+          ./build.sh --config .release.env
+      - name: Prepare release assets
+        id: assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release
+          base_name="omnixys-${{ matrix.distro }}-${{ steps.version.outputs.version }}"
+          iso_path="artifacts/release/${base_name}.iso"
+          cp output/omnixys-debian-13-auto.iso "$iso_path"
+          sha256sum "$iso_path" > "${iso_path}.sha256"
+          sha512sum "$iso_path" > "${iso_path}.sha512"
+
+          jq -n \
+            --arg version "${{ steps.version.outputs.version }}" \
+            --arg gitCommit "${{ github.sha }}" \
+            --arg backend "${{ matrix.backend }}" \
+            --arg distro "${{ matrix.distro }}" \
+            --arg buildDate "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+            --arg frameworkVersion "${{ steps.version.outputs.version }}" \
+            '{
+              version: $version,
+              gitCommit: $gitCommit,
+              backend: $backend,
+              distro: $distro,
+              buildDate: $buildDate,
+              frameworkVersion: $frameworkVersion
+            }' > "artifacts/release/${base_name}.build-info.json"
+
+          jq -n \
+            --arg bomFormat "CycloneDX" \
+            --arg specVersion "1.5" \
+            --arg serialNumber "urn:uuid:${{ github.run_id }}-${{ github.run_attempt }}" \
+            --arg timestamp "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+            --arg name "$base_name" \
+            --arg version "${{ steps.version.outputs.version }}" \
+            '{
+              bomFormat: $bomFormat,
+              specVersion: $specVersion,
+              serialNumber: $serialNumber,
+              version: 1,
+              metadata: {
+                timestamp: $timestamp,
+                component: {
+                  type: "file",
+                  name: $name,
+                  version: $version
+                }
+              },
+              components: [
+                {
+                  type: "application",
+                  name: "omnixys-installer-framework",
+                  version: $version
+                }
+              ]
+            }' > "artifacts/release/${base_name}.sbom.cdx.json"
+
+          echo "glob=artifacts/release/${base_name}*" >> "$GITHUB_OUTPUT"
+      - name: Upload release workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.backend }}-${{ steps.version.outputs.version }}
+          path: ${{ steps.assets.outputs.glob }}
+          retention-days: 30
+      - name: Publish GitHub release assets
+        if: github.event_name == 'release' || inputs.tag != ''
         uses: softprops/action-gh-release@v2
         with:
-          body_path: CHANGELOG.md
-          files: |
-            logs/build.log
-            CHANGELOG.md.sha256
+          tag_name: ${{ steps.version.outputs.tag }}
+          files: ${{ steps.assets.outputs.glob }}
+          fail_on_unmatched_files: true
+          append_body: false
+      - name: Package changelog checksum
+        run: |
+          sha256sum CHANGELOG.md > CHANGELOG.md.sha256
+      - name: Upload changelog checksum artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-changelog-${{ steps.version.outputs.version }}
+          path: CHANGELOG.md.sha256

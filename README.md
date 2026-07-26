@@ -171,8 +171,31 @@ Examples:
 
 Included workflows:
 
-- `ci.yml`: ShellCheck + dry-run
-- `release.yml`: tag-based release scaffold
+- `ci.yml`: ShellCheck + dry-run + per-push/per-PR ISO artifacts
+- `boot-tests.yml`: manual build + BIOS/UEFI smoke tests (matrix-ready backend structure)
+- `release-please.yml`: automatic SemVer release PRs and changelog updates from Conventional Commits
+- `release.yml`: published release asset builder (`.iso`, `.sha256`, `.sha512`, `build-info.json`, `sbom.cdx.json`)
+- `nightly.yml`: daily nightly ISO artifacts and nightly pre-release updates
+
+## Download Channels
+
+- Stable Releases: GitHub Releases assets
+- CI Artifacts: per push and pull request workflow artifacts
+- Nightly: daily pre-release assets and nightly workflow artifacts
+
+## Conventional Commits and SemVer
+
+Versioning is automated with release-please and Conventional Commits.
+
+- `fix:` -> patch bump
+- `feat:` -> minor bump
+- `BREAKING CHANGE:` or `!` -> major bump
+
+Example commit types:
+
+- `fix(installer): handle checksum edge case`
+- `feat(workflow): add nightly release channel`
+- `feat!: change backend API`
 
 ## Safety Warning
 

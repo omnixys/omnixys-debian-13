@@ -6,6 +6,12 @@ on:
 jobs:
   build-iso:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - backend: debian-preseed
+            config: configs/vm.env
+            iso_name: omnixys-debian-13-auto.iso
     steps:
       - uses: actions/checkout@v4
       - name: Install build tooling
@@ -13,14 +19,14 @@ jobs:
       - name: Build ISO
         run: |
           chmod +x build.sh
-          ./build.sh --config configs/vm.env
+          ./build.sh --config "${{ matrix.config }}"
       - name: Upload ISO artifact
         uses: actions/upload-artifact@v4
         with:
-          name: remastered-iso
+          name: remastered-iso-${{ matrix.backend }}
           path: |
-            output/omnixys-debian-13-auto.iso
-            output/omnixys-debian-13-auto.iso.sha256
+            output/${{ matrix.iso_name }}
+            output/${{ matrix.iso_name }}.sha256
 
   boot-bios:
     needs: build-iso
@@ -32,7 +38,7 @@ jobs:
       - name: Download ISO artifact
         uses: actions/download-artifact@v4
         with:
-          name: remastered-iso
+          name: remastered-iso-debian-preseed
           path: output
       - name: BIOS boot smoke
         run: |
@@ -49,7 +55,7 @@ jobs:
       - name: Download ISO artifact
         uses: actions/download-artifact@v4
         with:
-          name: remastered-iso
+          name: remastered-iso-debian-preseed
           path: output
       - name: Resolve OVMF path
         id: ovmf
