@@ -173,6 +173,7 @@ Included workflows:
 
 - `ci.yml`: ShellCheck + dry-run + per-push/per-PR ISO artifacts
 - `boot-tests.yml`: manual build + BIOS/UEFI smoke tests (matrix-ready backend structure)
+- `release-gate.yml`: validates release-please PRs (tests + full ISO build) before merge
 - `release-please.yml`: automatic SemVer release PRs and changelog updates from Conventional Commits
 - `release.yml`: published release asset builder (`.iso`, `.sha256`, `.sha512`, `build-info.json`, `sbom.cdx.json`)
 - `nightly.yml`: daily nightly ISO artifacts and nightly pre-release updates
@@ -196,6 +197,11 @@ Example commit types:
 - `fix(installer): handle checksum edge case`
 - `feat(workflow): add nightly release channel`
 - `feat!: change backend API`
+
+Release process note:
+
+- Release PRs created by release-please should pass `release-gate.yml` before merge.
+- Merge only after the gate is green, then release publishing workflows can proceed.
 
 ## Safety Warning
 

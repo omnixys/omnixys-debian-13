@@ -1,0 +1,62 @@
+name: Release Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  release-pr-tests:
+    if: startsWith(github.head_ref, 'release-please--branches--')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install test and build tooling
+        run: sudo apt-get update; sudo apt-get install -y shellcheck xorriso curl wget openssl
+
+      - name: Lint scripts
+        run: |
+          chmod +x build.sh
+          find core installer modules -name '*.sh' -print0 | xargs -0 -r chmod +x
+          shellcheck build.sh
+          find core installer modules -name '*.sh' -print0 | xargs -0 -r shellcheck
+
+      - name: Run test suite
+        run: |
+          chmod +x tests/test-core.sh
+          chmod +x tests/test-installer-debian-preseed.sh
+          chmod +x tests/test-renderer-template.sh
+          chmod +x tests/test-validator-rules.sh
+          chmod +x tests/test-builder-remaster.sh
+          chmod +x tests/test-modules.sh
+          chmod +x tests/test-module-manager.sh
+          chmod +x tests/test-dry-run.sh
+          ./tests/test-core.sh
+          ./tests/test-installer-debian-preseed.sh
+          ./tests/test-renderer-template.sh
+          ./tests/test-validator-rules.sh
+          ./tests/test-builder-remaster.sh
+          ./tests/test-modules.sh
+          ./tests/test-module-manager.sh
+          ./tests/test-dry-run.sh
+
+      - name: Build release candidate ISO
+        run: |
+          ./build.sh --config configs/vm.env
+
+      - name: Verify release candidate outputs
+        run: |
+          test -f output/omnixys-debian-13-auto.iso
+          test -f output/omnixys-debian-13-auto.iso.sha256
+          sha256sum -c output/omnixys-debian-13-auto.iso.sha256
+
+      - name: Upload release candidate artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gate-candidate-${{ github.sha }}
+          path: |
+            output/omnixys-debian-13-auto.iso
+            output/omnixys-debian-13-auto.iso.sha256
+          retention-days: 7
