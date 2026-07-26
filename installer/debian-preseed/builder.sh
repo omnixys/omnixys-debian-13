@@ -192,7 +192,16 @@ debian_detect_bootloader_files() {
 
 debian_extract_iso_tree() {
   local target_dir="$1"
-  rm -rf "$target_dir"
+
+  if [[ -e "$target_dir" ]]; then
+    # Previous extracts may contain read-only/immutable files from ISO metadata.
+    if command -v chflags >/dev/null 2>&1; then
+      run_cmd chflags -R nouchg "$target_dir" >/dev/null 2>&1 || true
+    fi
+    run_cmd chmod -R u+w "$target_dir" >/dev/null 2>&1 || true
+    rm -rf "$target_dir"
+  fi
+
   ensure_dir "$target_dir"
 
   if [[ "$DRY_RUN" == "true" ]]; then
