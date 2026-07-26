@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.2](https://github.com/omnixys/omnixys-debian-13/compare/v1.3.1...v1.3.2) (2026-07-26)
+
+
+### Bug Fixes
+
+* **product:** Update production.env ([0943045](https://github.com/omnixys/omnixys-debian-13/commit/0943045d14c896506e6a88ead8f919ac2030f159))
+* **prod:** update prod.env ([a93ae69](https://github.com/omnixys/omnixys-debian-13/commit/a93ae69c0f953cc6a0f7cfcb994a4abd8af50dc5))
+
 ## [1.3.1](https://github.com/omnixys/omnixys-debian-13/compare/v1.3.0...v1.3.1) (2026-07-26)
 
 
