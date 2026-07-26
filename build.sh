@@ -6,8 +6,11 @@ CONFIG_FILE="$ROOT_DIR/config.env"
 DRY_RUN="false"
 SHOW_VERSION="false"
 
+# shellcheck source=core/lib/common.sh
 source "$ROOT_DIR/core/lib/common.sh"
+# shellcheck source=core/lib/backend.sh
 source "$ROOT_DIR/core/lib/backend.sh"
+# shellcheck source=core/lib/modules.sh
 source "$ROOT_DIR/core/lib/modules.sh"
 
 usage() {
