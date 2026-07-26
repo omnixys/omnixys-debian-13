@@ -192,7 +192,7 @@ Release and nightly builds require these GitHub Actions secrets:
 - `FULLNAME`
 - `HOSTNAME`
 - `SSH_PUBLIC_KEY`
-- `DOMAIN`
+- `DOMAIN` (optional)
 
 These values are injected into the temporary CI config at runtime and override the corresponding profile values for release/nightly builds.
 
@@ -248,7 +248,7 @@ The Debian backend can optionally override identity values at install time from 
 - `IDENTITY_REQUIRED=true` aborts installation early when the identity file is missing.
 - Supported variables in `identity.env` are:
 - `OMNIXYS_HOSTNAME`
-- `OMNIXYS_DOMAIN`
+- `OMNIXYS_DOMAIN` (optional)
 - `OMNIXYS_FULLNAME`
 - `OMNIXYS_USERNAME`
 - `OMNIXYS_PASSWORD_HASH`
@@ -257,7 +257,6 @@ Example:
 
 ```dotenv
 OMNIXYS_HOSTNAME=omnixys-node-01
-OMNIXYS_DOMAIN=corp.local
 OMNIXYS_FULLNAME=Node Admin
 OMNIXYS_USERNAME=ops
 OMNIXYS_PASSWORD_HASH=$6$rounds=656000$example$examplehash
@@ -268,7 +267,6 @@ You can generate a ready-to-use file with:
 ```bash
 bash scripts/generate-identity-env.sh \
 	--hostname omnixys-node-01 \
-	--domain corp.local \
 	--fullname "Node Admin" \
 	--username ops \
 	--generate-password \
@@ -276,6 +274,7 @@ bash scripts/generate-identity-env.sh \
 ```
 
 The script prints the generated cleartext password once and writes only the hash into `identity.env`.
+The domain is optional; omit `--domain` or leave `DOMAIN` empty when you do not want to set one.
 
 This is the first runtime identity slice for Debian. The broader backend-agnostic Provisioning API and structured identity format remain the next architecture step.
 

@@ -7,7 +7,7 @@ Usage: bash scripts/generate-identity-env.sh [options]
 
 Options:
   --hostname <value>      Required host name.
-  --domain <value>        Required domain.
+  --domain <value>        Optional domain.
   --fullname <value>      Required full name.
   --username <value>      Required username.
   --password <value>      Use the provided cleartext password.
@@ -87,7 +87,6 @@ main() {
   done
 
   require_value --hostname "$hostname"
-  require_value --domain "$domain"
   require_value --fullname "$fullname"
   require_value --username "$username"
 

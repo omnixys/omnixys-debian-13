@@ -168,13 +168,13 @@ debian_validate_bool() {
 
 debian_validate() {
   step "debian-preseed validate: required variables"
+  DOMAIN="${DOMAIN:-}"
   debian_require_var INSTALLER
   debian_require_var ARCH
   debian_require_var INSTALLER_VERSION
   debian_require_var DEBIAN_MAJOR
   debian_require_var DEBIAN_RELEASE
   debian_require_var HOSTNAME
-  debian_require_var DOMAIN
   debian_require_var FULLNAME
   debian_require_var USERNAME
   debian_require_var LANGUAGE

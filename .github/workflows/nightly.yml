@@ -61,8 +61,6 @@ jobs:
           require_secret FULLNAME "$SECRET_FULLNAME"
           require_secret HOSTNAME "$SECRET_HOSTNAME"
           require_secret SSH_PUBLIC_KEY "$SECRET_SSH_PUBLIC_KEY"
-          require_secret DOMAIN "$SECRET_DOMAIN"
-
           cp "${{ matrix.config }}" .nightly.env
           set_config_value .nightly.env USERNAME "$SECRET_USERNAME"
           set_config_value .nightly.env PASSWORD "$SECRET_PASSWORD"
