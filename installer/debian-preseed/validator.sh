@@ -168,156 +168,61 @@ debian_validate_bool() {
 
 debian_validate() {
   step "debian-preseed validate: required variables"
+  DOMAIN="${DOMAIN:-}"
   debian_require_var INSTALLER
   debian_require_var ARCH
   debian_require_var INSTALLER_VERSION
   debian_require_var DEBIAN_MAJOR
-  debian_requirebash scripts/generate-identity-env.sh \
-  --hostname homelab-01 \
-  --fullname "Homelab Admin" \
-  --username admin \
-  --generate-password \
-  --output identity.envbian_require_var HOSTNAME
-  debian_require_var DOMAIN
+  debian_require_var DEBIAN_RELEASE
+  debian_require_var HOSTNAME
   debian_require_var FULLNAME
   debian_require_var USERNAME
   debian_require_var LANGUAGE
-  debian_require_var COUNTrequirebash scripts/generate-identity-env.sh \
-  --hostname homelab-01 \
-  --fullname "Homelab Admin" \
-  --username admin \
-  --generate-password \
-LE--output identity.envbianian_require_var KEYBOAR  debian_require_var DOMAIN
-D
+  debian_require_var COUNTRY
+  debian_require_var LOCALE
+  debian_require_var KEYBOARD
   debian_require_var TIMEZONE
   debian_require_var PARTITION_MODE
   debian_require_var ERASE_DISK
-  debian_require_COUNTrequirebash scripts/generate-identity-env.sh \
-  --hostname homelab-01 \
-  --fullname "Homelab Admin" \
-  --username admin \
-  --generate-password \
-LE--output identity.envbianian_require_var KEYBOAR  debian_require_var DOMAIN
-D
-var INSTALL_STANDARD_UTILITIES
+  debian_require_var FILESYSTEM
+  debian_require_var INSTALL_OPENSSH
+  debian_require_var INSTALL_STANDARD_UTILITIES
   debian_require_var INSTALL_FIRMWARE
   debian_require_var INSTALL_UPDATES
-  debian_require_COUNTrequirebash scripts/generate-identity-env.sh \
-  --hostname homelab-01 \
-  --fullname "Homelab Admin" \
-  --username admin \
-  --generate-password \
-LE--output identity.envbianian_require_var KEYBOAR  debian_require_var DOMAIN
-D
-an_require_var REBOOT_AFTER_INSTALL
+  debian_require_var SSH_PASSWORD_AUTH
+  debian_require_var SSH_PERMIT_ROOT_LOGIN
+  debian_require_var REBOOT_AFTER_INSTALL
 
   debian_validate_hostname
   debian_check_tooling
   debian_validate_timezone
-  debian_require_COUNTrequirebash scripts/generate-identity-env.sh \
-  --hostname homelab-01 \
-  --fullname "Homelab Admin" \
-  --username admin \
-  --generate-password \
-LE--output identity.envbianian_validate_locKEYBOARte_arch
-  debian_valiDOMAIN
-D
-ante_partition_mode
+  debian_validate_locale
+  debian_validate_arch
+  debian_validate_filesystem
+  debian_validate_partition_mode
   debian_validate_identity_config
   debian_validate_password_input
   debian_validate_target_disk_config
-  debian_require_COUNTrequirebash scripts/generate-identity-env.sh \
-  --hostname homelab-01 \
-  --fullname "Homelab Admin" \
-  --username admin \
-  --generate-password \
-LE--output identity.envbianian_validate_locKEYBOARtessh_policy
+  debian_validate_mirror
+  debian_validate_ssh_policy
 
-  ifvaliDOMAIN
-D
-antethen
+  if [[ "$PARTITION_MODE" == "custom" ]]; then
     die "PARTITION_MODE=custom is reserved for post-v1.0 extension; use erase or lvm"
   fi
 
   debian_validate_bool ERASE_DISK
-  debrequire_COUNTrequirebash scripts/generate-identity-env.sh \
-  --hostname homelab-01 \
-  --fullname "Homelab Admin" \
-  --username admin \
-  --generate-password \
-LE--output identity.envbianian_validate_locKEYBOARtessh_policy
-
-  ifvaliDOMAIN
-D
-antethen
-date_bool INSTALL_FIRMWARE
+  debian_validate_bool INSTALL_OPENSSH
+  debian_validate_bool INSTALL_STANDARD_UTILITIES
+  debian_validate_bool INSTALL_FIRMWARE
   debian_validate_bool INSTALL_UPDATES
   debian_validate_bool SSH_PASSWORD_AUTH
-  debian_validate_bool REBOOT_A  debrequire_COUNTrequirebash scripts/generate-identity-env.sh \
-  --hostname homelab-01 \
-  --fullname "Homelab Admin" \
-  --username admin \
-  --generate-password \
-LE--output identity.envbianian_validate_locKEYBOARtessh_policy
+  debian_validate_bool REBOOT_AFTER_INSTALL
+  if [[ -n "${SUDO_NOPASSWD:-}" ]]; then
+    debian_validate_bool SUDO_NOPASSWD
+  fi
 
-  ifvaliDOMAIN
-D
-antethen
-"$INSTALLER" == "debian-preseed" ]] || die "INSTALLER must be debian-preseed for this backend"
+  [[ "$INSTALLER" == "debian-preseed" ]] || die "INSTALLER must be debian-preseed for this backend"
 }
-A  debrequire_COUNTrequirebash scripts/generate-identity-env.sh \
-  --hostname homelab-01 \
-  --fullname "Homelab Admin" \
-  --username admin \
-  --generate-password \
-LE--output identity.envbianian_validate_locKEYBOARtessh_policy
-
-  ifvaliDOMAIN
-D
-antethen
-A  debrequire_COUNTrequirebash scripts/generate-identity-env.sh \
-  --hostname homelab-01 \
-  --fullname "Homelab Admin" \
-  --username admin \
-  --generate-password \
-LE--output identity.envbianian_validate_locKEYBOARtessh_policy
-
-  ifvaliDOMAIN
-D
-antethen
-A  debreqA  debrequire_COUNTrequirebash scripts/generate-identity-env.sh \
-  --hostname homelab-01 \
-  --fullname "Homelab Admin" \
-  --username admin \
-  --generate-password \
-LE--output identity.envbianian_validate_locKEYBOARtessh_policy
-
-  ifvaliDOMAIN
-D
-antethen
-uire_COUNTrequirebash scripts/generate-identity-env.sh \
-  --hostname homelab-01 \
-  --fullname "Homelab Admin" \
-  --username admin \
-  --generate-password \
-LE--output identity.envbianian_validate_locKEYBOARtessh_policy
-
-  ifvaliDOMAIN
-D
-antethen
-A  debreqA  debrequire_COUNTrequirebash scripts/generate-identity-env.sh \
-  --hostname homelab-01 \
-  --fullname "Homelab Admin" \
-  --username admin \
-  --generate-password \
-LE--output identity.envbianian_validate_locKEYBOARtessh_policy
-
-  ifvaliDOMAIN
-D
-antethen
-uireA  debreqA  debrequire_COUNTrequirebash scripts/generate-identity-env.sh \
-  --hostname homelab-01 \
-  --fullname "Homelab Admin" \
   --username admin \
   --generate-password \
 LE--output identity.envbianian_validate_locKEYBOARtessh_policy
