@@ -66,7 +66,7 @@ debian_build() {
 }
 
 debian_read_disk_info() {
-  local tmp_info
+  local tmp_info line
   tmp_info="$BACKEND_WORK_DIR/.disk-info"
 
   if [[ "$DRY_RUN" == "true" ]]; then
@@ -75,8 +75,9 @@ debian_read_disk_info() {
   fi
 
   run_cmd xorriso -osirrox on -indev "$ISO_SOURCE_PATH" -extract /.disk/info "$tmp_info" >/dev/null 2>&1 || true
-  if [[ -f "$tmp_info" ]]; then
-    head -n 1 "$tmp_info"
+  if [[ -s "$tmp_info" ]]; then
+    line="$(head -n 1 "$tmp_info" | tr -d '\r')"
+    [[ -n "$line" ]] && echo "$line" || echo "unknown"
   else
     echo "unknown"
   fi
