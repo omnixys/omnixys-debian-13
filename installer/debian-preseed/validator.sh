@@ -119,6 +119,46 @@ debian_validate_target_disk_config() {
   esac
 }
 
+debian_validate_identity_source() {
+  IDENTITY_SOURCE="${IDENTITY_SOURCE:-none}"
+  case "$IDENTITY_SOURCE" in
+    none|usb-env) ;;
+    *) die "Unsupported IDENTITY_SOURCE: $IDENTITY_SOURCE (expected none|usb-env)" ;;
+  esac
+}
+
+debian_validate_identity_config() {
+  debian_validate_identity_source
+
+  if [[ -n "${IDENTITY_REQUIRED:-}" ]]; then
+    debian_validate_bool IDENTITY_REQUIRED
+  else
+    IDENTITY_REQUIRED="false"
+  fi
+
+  IDENTITY_FILE_PATH="${IDENTITY_FILE_PATH:-/identity.env}"
+  IDENTITY_DEVICE_LABEL="${IDENTITY_DEVICE_LABEL:-OMNIXYS_IDENTITY}"
+
+  if [[ "$IDENTITY_SOURCE" == "usb-env" ]]; then
+    [[ "$IDENTITY_FILE_PATH" == /* ]] || die "IDENTITY_FILE_PATH must start with /: $IDENTITY_FILE_PATH"
+    [[ -n "$IDENTITY_DEVICE_LABEL" ]] || die "IDENTITY_DEVICE_LABEL must not be empty when IDENTITY_SOURCE=usb-env"
+  fi
+}
+
+debian_validate_password_input() {
+  if [[ -n "${PASSWORD_HASH:-}" ]]; then
+    return 0
+  fi
+
+  if [[ "$IDENTITY_SOURCE" != "none" && "$IDENTITY_REQUIRED" == "true" ]]; then
+    warn "PASSWORD/PASSWORD_HASH not required at build time because runtime identity is mandatory"
+    return 0
+  fi
+
+  debian_require_var PASSWORD
+  debian_validate_password
+}
+
 debian_validate_bool() {
   local var_name="$1"
   local normalized
@@ -137,7 +177,6 @@ debian_validate() {
   debian_require_var DOMAIN
   debian_require_var FULLNAME
   debian_require_var USERNAME
-  debian_require_var PASSWORD
   debian_require_var LANGUAGE
   debian_require_var COUNTRY
   debian_require_var LOCALE
@@ -161,7 +200,8 @@ debian_validate() {
   debian_validate_arch
   debian_validate_filesystem
   debian_validate_partition_mode
-  debian_validate_password
+  debian_validate_identity_config
+  debian_validate_password_input
   debian_validate_target_disk_config
   debian_validate_mirror
   debian_validate_ssh_policy

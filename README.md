@@ -102,6 +102,10 @@ Debian backend:
 
 Install behavior:
 
+- `IDENTITY_SOURCE=none|usb-env`
+- `IDENTITY_REQUIRED=true|false`
+- `IDENTITY_FILE_PATH=/identity.env`
+- `IDENTITY_DEVICE_LABEL=OMNIXYS_IDENTITY`
 - `TARGET_DISK_MODE=auto|by-id|manual`
 - `TARGET_DISK_BY_ID=/dev/disk/by-id/...` (required for `by-id`)
 - `TARGET_DISK=/dev/...` (required for `manual`)
@@ -224,6 +228,31 @@ Safety behavior:
 - In `auto`, the installer never guesses when multiple candidates exist.
 - If `auto` finds zero or more than one candidate disk, installation stops before partitioning.
 - Existing configs without `TARGET_DISK_MODE` remain compatible and behave like `manual`.
+
+## Runtime Identity Override (MVP)
+
+The Debian backend can optionally override identity values at install time from an external `identity.env` file.
+
+- `IDENTITY_SOURCE=usb-env` enables lookup of `/identity.env` on `/cdrom` or on a removable medium labeled `OMNIXYS_IDENTITY`.
+- `IDENTITY_REQUIRED=true` aborts installation early when the identity file is missing.
+- Supported variables in `identity.env` are:
+- `OMNIXYS_HOSTNAME`
+- `OMNIXYS_DOMAIN`
+- `OMNIXYS_FULLNAME`
+- `OMNIXYS_USERNAME`
+- `OMNIXYS_PASSWORD_HASH`
+
+Example:
+
+```dotenv
+OMNIXYS_HOSTNAME=omnixys-node-01
+OMNIXYS_DOMAIN=corp.local
+OMNIXYS_FULLNAME=Node Admin
+OMNIXYS_USERNAME=ops
+OMNIXYS_PASSWORD_HASH=$6$rounds=656000$example$examplehash
+```
+
+This is the first runtime identity slice for Debian. The broader backend-agnostic Provisioning API and structured identity format remain the next architecture step.
 
 ## USB Write Mode (Important)
 

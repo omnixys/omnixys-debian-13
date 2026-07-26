@@ -8,7 +8,7 @@ debian_render_template() {
   local template="$1"
   local output="$2"
 
-  local esc_fullname esc_ssh_key esc_late_command esc_tasksel esc_pkgsel esc_anna_modules esc_finish_action esc_disk_early_command
+  local esc_fullname esc_ssh_key esc_late_command esc_tasksel esc_pkgsel esc_anna_modules esc_finish_action esc_preseed_early_command
   esc_fullname="$(escape_sed_replacement "$FULLNAME")"
   esc_ssh_key="$(escape_sed_replacement "${SSH_PUBLIC_KEY:-}")"
   esc_late_command="$(escape_sed_replacement "$LATE_COMMAND")"
@@ -16,7 +16,7 @@ debian_render_template() {
   esc_pkgsel="$(escape_sed_replacement "$PKGSEL_INCLUDE")"
   esc_anna_modules="$(escape_sed_replacement "$ANNA_MODULES")"
   esc_finish_action="$(escape_sed_replacement "$FINISH_ACTION")"
-  esc_disk_early_command="$(escape_sed_replacement "$DISK_EARLY_COMMAND")"
+  esc_preseed_early_command="$(escape_sed_replacement "$PRESEED_EARLY_COMMAND")"
 
   sed \
     -e "s|__HOSTNAME__|$HOSTNAME|g" \
@@ -30,7 +30,7 @@ debian_render_template() {
     -e "s|__KEYBOARD__|$KEYBOARD|g" \
     -e "s|__TIMEZONE__|$TIMEZONE|g" \
     -e "s|__TARGET_DISK__|$RESOLVED_TARGET_DISK|g" \
-    -e "s|__DISK_EARLY_COMMAND__|$esc_disk_early_command|g" \
+    -e "s|__PRESEED_EARLY_COMMAND__|$esc_preseed_early_command|g" \
     -e "s|__FILESYSTEM__|$FILESYSTEM|g" \
     -e "s|__PARTMAN_METHOD__|$PARTMAN_METHOD|g" \
     -e "s|__PARTMAN_RECIPE__|$PARTMAN_RECIPE|g" \
@@ -123,6 +123,24 @@ debian_compose_finish_action() {
   fi
 }
 
+debian_resolve_password_hash() {
+  if [[ -n "${PASSWORD_HASH:-}" ]]; then
+    return 0
+  fi
+
+  if [[ -n "${PASSWORD:-}" ]]; then
+    PASSWORD_HASH="$(openssl passwd -6 "$PASSWORD")"
+    return 0
+  fi
+
+  if [[ "$IDENTITY_SOURCE" != "none" && "$IDENTITY_REQUIRED" == "true" ]]; then
+    PASSWORD_HASH='!'
+    return 0
+  fi
+
+  die "Unable to resolve PASSWORD_HASH: set PASSWORD, PASSWORD_HASH, or provide required runtime identity"
+}
+
 debian_partition_mode_values() {
   case "$PARTITION_MODE" in
     erase)
@@ -149,6 +167,30 @@ debian_compose_disk_early_command_by_id() {
   cat <<EOF
 TARGET="\$(readlink -f "$TARGET_DISK_BY_ID" 2>/dev/null || true)"; [ -b "\$TARGET" ] || { echo "omnixys: by-id target not resolvable: $TARGET_DISK_BY_ID" >/var/log/omnixys-disk-detect.log; exit 1; }; debconf-set partman-auto/disk "\$TARGET"
 EOF
+}
+
+debian_compose_identity_early_command() {
+  case "$IDENTITY_SOURCE" in
+    none)
+      echo "true"
+      ;;
+    usb-env)
+      cat <<EOF
+IDENTITY_FILE=""; IDENTITY_MOUNTED="false"; mkdir -p /var/lib/omnixys /media/omnixys-identity; if [ -r "/cdrom$IDENTITY_FILE_PATH" ]; then IDENTITY_FILE="/cdrom$IDENTITY_FILE_PATH"; elif [ -b "/dev/disk/by-label/$IDENTITY_DEVICE_LABEL" ]; then if mount -o ro "/dev/disk/by-label/$IDENTITY_DEVICE_LABEL" /media/omnixys-identity >/dev/null 2>&1; then IDENTITY_MOUNTED="true"; fi; if [ -r "/media/omnixys-identity$IDENTITY_FILE_PATH" ]; then IDENTITY_FILE="/media/omnixys-identity$IDENTITY_FILE_PATH"; fi; fi; if [ -z "\$IDENTITY_FILE" ]; then if [ "$IDENTITY_REQUIRED" = "true" ]; then echo "omnixys: required identity file not found" >/var/log/omnixys-identity.log; exit 1; fi; else cp "\$IDENTITY_FILE" /var/lib/omnixys/identity.env; . /var/lib/omnixys/identity.env; [ -n "\${OMNIXYS_HOSTNAME:-}" ] && debconf-set netcfg/get_hostname "\$OMNIXYS_HOSTNAME"; [ -n "\${OMNIXYS_DOMAIN:-}" ] && debconf-set netcfg/get_domain "\$OMNIXYS_DOMAIN"; [ -n "\${OMNIXYS_FULLNAME:-}" ] && debconf-set passwd/user-fullname "\$OMNIXYS_FULLNAME"; [ -n "\${OMNIXYS_USERNAME:-}" ] && debconf-set passwd/username "\$OMNIXYS_USERNAME"; [ -n "\${OMNIXYS_PASSWORD_HASH:-}" ] && debconf-set passwd/user-password-crypted "\$OMNIXYS_PASSWORD_HASH"; fi; if [ "\$IDENTITY_MOUNTED" = "true" ]; then umount /media/omnixys-identity >/dev/null 2>&1 || true; fi
+EOF
+      ;;
+    *)
+      die "Unsupported IDENTITY_SOURCE in renderer: $IDENTITY_SOURCE"
+      ;;
+  esac
+}
+
+debian_compose_preseed_early_command() {
+  PRESEED_EARLY_COMMAND="$DISK_EARLY_COMMAND"
+
+  if [[ "$IDENTITY_SOURCE" != "none" ]]; then
+    PRESEED_EARLY_COMMAND+="; $(debian_compose_identity_early_command)"
+  fi
 }
 
 debian_resolve_target_disk() {
@@ -201,11 +243,12 @@ debian_render() {
   GENERATED_DIR="$BACKEND_WORK_DIR/generated"
   ensure_dir "$GENERATED_DIR"
 
-  step "debian-preseed render: hashing password"
-  PASSWORD_HASH="$(openssl passwd -6 "$PASSWORD")"
+  step "debian-preseed render: resolving password hash"
+  debian_resolve_password_hash
 
   debian_partition_mode_values
   debian_resolve_target_disk
+  debian_compose_preseed_early_command
   TASKSEL_FIRST="$(debian_compose_tasksel)"
   PKGSEL_INCLUDE="$(debian_compose_pkgsel)"
   PKGSEL_UPGRADE="$(debian_compose_pkgsel_upgrade)"

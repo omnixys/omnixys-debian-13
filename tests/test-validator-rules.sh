@@ -10,5 +10,6 @@ grep -q "PASSWORD must be at least 12 characters" "$VALIDATOR"
 grep -q "Unsupported ARCH" "$VALIDATOR"
 grep -q "Invalid LOCALE" "$VALIDATOR"
 grep -q "APT_MIRROR" "$VALIDATOR"
+grep -q "Unsupported IDENTITY_SOURCE" "$VALIDATOR"
 
 echo "Validator rules presence test passed"

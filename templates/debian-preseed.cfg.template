@@ -27,7 +27,7 @@ d-i passwd/user-password-crypted password __PASSWORD_HASH__
 
 ### Partitioning
 d-i anna/choose_modules string __ANNA_MODULES__
-d-i preseed/early_command string __DISK_EARLY_COMMAND__
+d-i preseed/early_command string __PRESEED_EARLY_COMMAND__
 d-i partman-auto/method string __PARTMAN_METHOD__
 d-i partman-auto/disk string __TARGET_DISK__
 d-i partman-auto/choose_recipe select __PARTMAN_RECIPE__
