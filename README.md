@@ -252,6 +252,20 @@ OMNIXYS_USERNAME=ops
 OMNIXYS_PASSWORD_HASH=$6$rounds=656000$example$examplehash
 ```
 
+You can generate a ready-to-use file with:
+
+```bash
+bash scripts/generate-identity-env.sh \
+	--hostname omnixys-node-01 \
+	--domain corp.local \
+	--fullname "Node Admin" \
+	--username ops \
+	--generate-password \
+	--output identity.env
+```
+
+The script prints the generated cleartext password once and writes only the hash into `identity.env`.
+
 This is the first runtime identity slice for Debian. The broader backend-agnostic Provisioning API and structured identity format remain the next architecture step.
 
 ## USB Write Mode (Important)
