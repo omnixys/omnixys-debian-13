@@ -245,6 +245,7 @@ Safety behavior:
 The Debian backend can optionally override identity values at install time from an external `identity.env` file.
 
 - `IDENTITY_SOURCE=usb-env` enables lookup of `/identity.env` on `/cdrom` or on a removable medium labeled `OMNIXYS_IDENTITY`.
+- `IDENTITY_SOURCE=usb-env` enables lookup of `/identity.env` on `/cdrom` or on a removable medium labeled by `IDENTITY_DEVICE_LABEL` (for example `OMNIXYS_ID`).
 - `IDENTITY_REQUIRED=true` aborts installation early when the identity file is missing.
 - Supported variables in `identity.env` are:
 - `OMNIXYS_HOSTNAME`
