@@ -3,7 +3,6 @@
   "release-type": "simple",
   "include-v-in-tag": true,
   "include-component-in-tag": false,
-  "pull-request-title-pattern": "chore(release): ${version}",
   "packages": {
     ".": {
       "release-type": "simple",
