@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.3.1](https://github.com/omnixys/omnixys-debian-13/compare/v1.3.0...v1.3.1) (2026-07-26)
+
+
+### Bug Fixes
+
+* **installer:** remove stray validator text ([97682c7](https://github.com/omnixys/omnixys-debian-13/commit/97682c7396fac3a3937fd532261ba322f11357ea))
+* **installer:** restore validator syntax ([0771080](https://github.com/omnixys/omnixys-debian-13/commit/07710806dced0b951c18dd18541d0a7f00d8491c))
+* **kp:** validator ([6f58bf3](https://github.com/omnixys/omnixys-debian-13/commit/6f58bf3641e4855ba3482f1b4e3ec058555fd003))
+
 ## [1.3.0](https://github.com/omnixys/omnixys-debian-13/compare/1.2.0...v1.3.0) (2026-07-26)
 
 
