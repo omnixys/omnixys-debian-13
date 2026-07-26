@@ -1,0 +1,6 @@
+name: ansible
+version: 0.1.0
+enabledByDefault: false
+priority: 60
+dependencies: core
+description: Scaffold module for post-install Ansible setup.

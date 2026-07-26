@@ -1,0 +1,6 @@
+name: core
+version: 1.0.0
+enabledByDefault: true
+priority: 10
+dependencies:
+description: Core module always enabled.

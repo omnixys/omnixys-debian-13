@@ -1,0 +1,8 @@
+name: debian-preseed
+version: 1.0.0
+apiVersion: 1
+maintainer: omnixys
+description: Debian unattended installer backend based on preseed.
+supportedArchitectures:
+  - amd64
+  - arm64

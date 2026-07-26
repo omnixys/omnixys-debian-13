@@ -1,0 +1,26 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare scripts
+        run: chmod +x build.sh
+      - name: Build dry-run metadata
+        run: ./build.sh --config configs/vm.env --dry-run
+      - name: Package release metadata
+        run: |
+          sha256sum CHANGELOG.md > CHANGELOG.md.sha256
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: CHANGELOG.md
+          files: |
+            logs/build.log
+            CHANGELOG.md.sha256

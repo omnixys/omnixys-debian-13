@@ -1,0 +1,6 @@
+name: ssh
+version: 1.0.0
+enabledByDefault: true
+priority: 20
+dependencies: core
+description: SSH policy module.

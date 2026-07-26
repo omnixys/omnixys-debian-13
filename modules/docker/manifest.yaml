@@ -1,0 +1,6 @@
+name: docker
+version: 0.1.0
+enabledByDefault: false
+priority: 40
+dependencies: core
+description: Scaffold module for post-install Docker setup.

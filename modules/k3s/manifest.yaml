@@ -1,0 +1,6 @@
+name: k3s
+version: 0.1.0
+enabledByDefault: false
+priority: 70
+dependencies: core
+description: Scaffold module for post-install K3s setup.

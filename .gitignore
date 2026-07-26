@@ -1,0 +1,14 @@
+config.env
+logs/*.log
+output/*.iso
+output/*.sha256
+downloads/*.iso
+downloads/*.sha256
+work/
+cache/
+artifacts/
+.tmp/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

@@ -1,0 +1,6 @@
+name: custom
+version: 0.1.0
+enabledByDefault: false
+priority: 90
+dependencies: core
+description: User-defined custom module scaffold.
