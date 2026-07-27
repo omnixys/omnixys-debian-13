@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.4](https://github.com/omnixys/omnixys-debian-13/compare/v1.4.3...v1.4.4) (2026-07-27)
+
+
+### Bug Fixes
+
+* **installer:** eject install media before reboot to avoid loop ([8de4ec3](https://github.com/omnixys/omnixys-debian-13/commit/8de4ec30f3e367f28191cc7d57da4438c140c2ea))
+* **installer:** identity pipeline and USB label fixes ([2f5aeda](https://github.com/omnixys/omnixys-debian-13/commit/2f5aeda2a830a36d39d880bfa3d1e7b14fb8e6f8))
+
 ## [1.4.3](https://github.com/omnixys/omnixys-debian-13/compare/v1.4.2...v1.4.3) (2026-07-27)
 
 
