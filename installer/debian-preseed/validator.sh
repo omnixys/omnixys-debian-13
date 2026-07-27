@@ -137,7 +137,7 @@ debian_validate_identity_config() {
   fi
 
   IDENTITY_FILE_PATH="${IDENTITY_FILE_PATH:-/identity.env}"
-  IDENTITY_DEVICE_LABEL="${IDENTITY_DEVICE_LABEL:-OMNIXYS_IDENTITY}"
+  IDENTITY_DEVICE_LABEL="${IDENTITY_DEVICE_LABEL:-OMNIXYS-ID}"
 
   if [[ "$IDENTITY_SOURCE" == "usb-env" ]]; then
     [[ "$IDENTITY_FILE_PATH" == /* ]] || die "IDENTITY_FILE_PATH must start with /: $IDENTITY_FILE_PATH"

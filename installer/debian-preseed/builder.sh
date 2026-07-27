@@ -248,6 +248,9 @@ debian_package() {
     run_cmd cp "$GENERATED_DIR/omnixys-disk-detect.sh" "$ISO_TREE_DIR/omnixys-disk-detect.sh"
     run_cmd chmod 0755 "$ISO_TREE_DIR/omnixys-disk-detect.sh"
   fi
+  if [[ -f "$ROOT_DIR/identity.env" ]]; then
+    run_cmd cp "$ROOT_DIR/identity.env" "$ISO_TREE_DIR/identity.env"
+  fi
 
   step "Patching boot configuration"
   debian_patch_boot_configs "$ISO_TREE_DIR"

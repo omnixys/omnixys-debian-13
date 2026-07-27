@@ -90,11 +90,12 @@ debian_compose_late_command() {
   cmd+="; in-target apt-get update"
   cmd+="; in-target DEBIAN_FRONTEND=noninteractive apt-get -y upgrade"
 
-  # Determine the effective install user at runtime so identity overrides stay consistent.
-  cmd+="; INSTALL_USER=\"\$(in-target awk -F: '\$3 == 1000 { print \$1; exit }' /etc/passwd 2>/dev/null || true)\""
-  cmd+="; [ -n \"\$INSTALL_USER\" ] || INSTALL_USER=\"${USERNAME}\""
+  # Start with build-time values as unconditional defaults.
+  cmd+="; INSTALL_USER=\"${USERNAME}\""
   cmd+="; INSTALL_SSH_KEY=\"${SSH_PUBLIC_KEY:-}\""
-  cmd+="; INSTALL_HOSTNAME=\"\""
+  cmd+="; INSTALL_HOSTNAME=\"${HOSTNAME}\""
+
+  # Allow identity.env runtime overrides when present (e.g. USB-based identity).
   cmd+="; if [ -r /var/lib/omnixys/identity.env ]; then . /var/lib/omnixys/identity.env; [ -n \"\${OMNIXYS_USERNAME:-}\" ] && INSTALL_USER=\"\$OMNIXYS_USERNAME\"; [ -n \"\${OMNIXYS_SSH_PUBLIC_KEY:-}\" ] && INSTALL_SSH_KEY=\"\$OMNIXYS_SSH_PUBLIC_KEY\"; [ -n \"\${OMNIXYS_HOSTNAME:-}\" ] && INSTALL_HOSTNAME=\"\$OMNIXYS_HOSTNAME\"; fi"
 
   if [[ "$sudo_nopasswd" == "true" ]]; then
@@ -353,7 +354,7 @@ TARGET_DISK_BY_ID="${TARGET_DISK_BY_ID:-}"
 IDENTITY_SOURCE="${IDENTITY_SOURCE:-none}"
 IDENTITY_REQUIRED="${IDENTITY_REQUIRED:-false}"
 IDENTITY_FILE_PATH="${IDENTITY_FILE_PATH:-/identity.env}"
-IDENTITY_DEVICE_LABEL="${IDENTITY_DEVICE_LABEL:-OMNIXYS_IDENTITY}"
+IDENTITY_DEVICE_LABEL="${IDENTITY_DEVICE_LABEL:-OMNIXYS-ID}"
 
 run_disk_step() {
   case "\$TARGET_DISK_MODE" in

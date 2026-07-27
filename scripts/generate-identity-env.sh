@@ -109,10 +109,10 @@ main() {
   cat >"$output_file" <<EOF
 OMNIXYS_HOSTNAME=$hostname
 OMNIXYS_DOMAIN=$domain
-OMNIXYS_FULLNAME=$fullname
+OMNIXYS_FULLNAME="$fullname"
 OMNIXYS_USERNAME=$username
-OMNIXYS_SSH_PUBLIC_KEY=$ssh_public_key
-OMNIXYS_PASSWORD_HASH=$password_hash
+OMNIXYS_SSH_PUBLIC_KEY="$ssh_public_key"
+OMNIXYS_PASSWORD_HASH='$password_hash'
 EOF
 
   echo "Wrote $output_file"
