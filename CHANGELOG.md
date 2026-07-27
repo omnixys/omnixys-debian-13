@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.2](https://github.com/omnixys/omnixys-debian-13/compare/v1.4.1...v1.4.2) (2026-07-27)
+
+
+### Bug Fixes
+
+* **installer:** remove unused disk early command assignments ([707e642](https://github.com/omnixys/omnixys-debian-13/commit/707e6424f99d52357ab17f5aeedb24919ed81c1a))
+
 ## [1.4.1](https://github.com/omnixys/omnixys-debian-13/compare/v1.4.0...v1.4.1) (2026-07-27)
 
 
