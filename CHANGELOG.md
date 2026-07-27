@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.1](https://github.com/omnixys/omnixys-debian-13/compare/v1.4.0...v1.4.1) (2026-07-27)
+
+
+### Bug Fixes
+
+* **installer:** avoid invalid auto disk debconf bootstrap ([c46b99d](https://github.com/omnixys/omnixys-debian-13/commit/c46b99daf918dd69c5185b474d89a8b5caddb90f))
+* **installer:** isolate early command into stable wrapper script ([1024546](https://github.com/omnixys/omnixys-debian-13/commit/1024546ea45b5c960c174387438a1755bf4fc158))
+
 ## [1.4.0](https://github.com/omnixys/omnixys-debian-13/compare/v1.3.2...v1.4.0) (2026-07-27)
 
 
