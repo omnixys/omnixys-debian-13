@@ -12,3 +12,4 @@ artifacts/
 Thumbs.db
 *.swp
 *.swo
+identity.env
