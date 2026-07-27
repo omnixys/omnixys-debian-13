@@ -5,6 +5,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: release-please-main
+  cancel-in-progress: true
+
 permissions:
   contents: write
   pull-requests: write
@@ -13,6 +17,47 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
+      - name: Cleanup stale release-please branch
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const branch = 'release-please--branches--main';
+            const ref = `heads/${branch}`;
+
+            let refExists = true;
+            try {
+              await github.rest.git.getRef({ owner, repo, ref });
+            } catch (error) {
+              if (error.status === 404) {
+                refExists = false;
+              } else {
+                throw error;
+              }
+            }
+
+            if (!refExists) {
+              core.info('No stale release-please branch found.');
+              return;
+            }
+
+            const { data: openPrs } = await github.rest.pulls.list({
+              owner,
+              repo,
+              state: 'open',
+              head: `${owner}:${branch}`
+            });
+
+            if (openPrs.length > 0) {
+              core.info(`Keeping existing release-please branch because PR #${openPrs[0].number} is open.`);
+              return;
+            }
+
+            await github.rest.git.deleteRef({ owner, repo, ref });
+            core.info(`Deleted stale branch: ${branch}`);
+
       - uses: googleapis/release-please-action@v4
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
