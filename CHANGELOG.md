@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.4.0](https://github.com/omnixys/omnixys-debian-13/compare/v1.3.2...v1.4.0) (2026-07-27)
+
+
+### Features
+
+* **build:** generate amd64 and arm64 iso artifacts ([639df9a](https://github.com/omnixys/omnixys-debian-13/commit/639df9ada5b800a63ddf4f6324d80d6b78a83ee2))
+
+
+### Bug Fixes
+
+* **ci:** prevent release-please stale branch creation failures ([148fd2a](https://github.com/omnixys/omnixys-debian-13/commit/148fd2a9637c493ada6a19e11988213eed1f7560))
+* **config:** use auto disk mode for production installs ([8831e2f](https://github.com/omnixys/omnixys-debian-13/commit/8831e2f91161178869ac28fbb8af52f1705d3e96))
+* **installer:** align ssh provisioning with runtime identity ([a97b8fe](https://github.com/omnixys/omnixys-debian-13/commit/a97b8fe1788087fcc5d24f2e405ea0b3c2452035))
+* **installer:** harden auto disk detection in early command ([779db14](https://github.com/omnixys/omnixys-debian-13/commit/779db1490380f25ea9d3fef866afef67540bfd5b))
+* **installer:** rewrite auto disk early command as POSIX helper script ([f070efe](https://github.com/omnixys/omnixys-debian-13/commit/f070efe8827aadfc3b74d789bbfd18ffa9f19fc6))
+
 ## [1.3.2](https://github.com/omnixys/omnixys-debian-13/compare/v1.3.1...v1.3.2) (2026-07-26)
 
 
