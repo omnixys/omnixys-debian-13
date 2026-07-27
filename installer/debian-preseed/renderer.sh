@@ -106,6 +106,15 @@ debian_compose_late_command() {
   cmd+="; if [ -n \"\$INSTALL_HOSTNAME\" ]; then in-target sh -c \"printf '%s\\n' \\\"\$INSTALL_HOSTNAME\\\" > /etc/hostname\"; in-target hostnamectl set-hostname \"\$INSTALL_HOSTNAME\" >/dev/null 2>&1 || true; fi"
   cmd+="; if [ -n \"\$INSTALL_SSH_KEY\" ]; then in-target env INSTALL_USER=\"\$INSTALL_USER\" INSTALL_SSH_KEY=\"\$INSTALL_SSH_KEY\" sh -c 'mkdir -p /home/\$INSTALL_USER/.ssh; printf %s \"\$INSTALL_SSH_KEY\" > /home/\$INSTALL_USER/.ssh/authorized_keys; chown -R \$INSTALL_USER:\$INSTALL_USER /home/\$INSTALL_USER/.ssh; chmod 700 /home/\$INSTALL_USER/.ssh; chmod 600 /home/\$INSTALL_USER/.ssh/authorized_keys'; fi"
 
+  if [[ "$REBOOT_AFTER_INSTALL" == "true" ]]; then
+    # Reduce reboot-loops into installer by ejecting/unmounting install media before reboot.
+    cmd+="; echo 'Omnixys: Installation complete. Remove boot media now.' >/dev/tty1 || true"
+    cmd+="; sync"
+    cmd+="; umount /cdrom >/dev/null 2>&1 || true"
+    cmd+="; eject -m /cdrom >/dev/null 2>&1 || eject >/dev/null 2>&1 || true"
+    cmd+="; sleep 5"
+  fi
+
   printf '%s' "$cmd"
 }
 
