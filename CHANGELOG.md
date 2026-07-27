@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.3](https://github.com/omnixys/omnixys-debian-13/compare/v1.4.2...v1.4.3) (2026-07-27)
+
+
+### Bug Fixes
+
+* **installer:** auto-set grub bootdev from selected target disk ([8c1acf5](https://github.com/omnixys/omnixys-debian-13/commit/8c1acf53e7cf274f0223e80437d15e3312600780))
+
 ## [1.4.2](https://github.com/omnixys/omnixys-debian-13/compare/v1.4.1...v1.4.2) (2026-07-27)
 
 
