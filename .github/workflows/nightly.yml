@@ -72,18 +72,20 @@ jobs:
       - name: Build ISO
         run: |
           chmod +x build.sh
-          ./build.sh --config .nightly.env
+          ./build.sh --config .nightly.env --arches amd64,arm64
       - name: Prepare nightly assets
         id: assets
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts/nightly
-          iso_name="omnixys-${{ matrix.distro }}-nightly.iso"
-          iso_path="artifacts/nightly/${iso_name}"
-          cp output/omnixys-debian-13-auto.iso "$iso_path"
-          sha256sum "$iso_path" > "${iso_path}.sha256"
-          echo "glob=artifacts/nightly/${iso_name}*" >> "$GITHUB_OUTPUT"
+          for arch in amd64 arm64; do
+            iso_name="omnixys-${{ matrix.distro }}-${arch}-nightly.iso"
+            iso_path="artifacts/nightly/${iso_name}"
+            cp "output/omnixys-debian-13-${arch}-auto.iso" "$iso_path"
+            sha256sum "$iso_path" > "${iso_path}.sha256"
+          done
+          echo "glob=artifacts/nightly/*" >> "$GITHUB_OUTPUT"
       - name: Upload nightly workflow artifact
         uses: actions/upload-artifact@v4
         with:

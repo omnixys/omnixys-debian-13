@@ -44,19 +44,23 @@ jobs:
 
       - name: Build release candidate ISO
         run: |
-          ./build.sh --config configs/vm.env
+          ./build.sh --config configs/vm.env --arches amd64,arm64
 
       - name: Verify release candidate outputs
         run: |
-          test -f output/omnixys-debian-13-auto.iso
-          test -f output/omnixys-debian-13-auto.iso.sha256
-          sha256sum -c output/omnixys-debian-13-auto.iso.sha256
+          for arch in amd64 arm64; do
+            test -f "output/omnixys-debian-13-${arch}-auto.iso"
+            test -f "output/omnixys-debian-13-${arch}-auto.iso.sha256"
+            sha256sum -c "output/omnixys-debian-13-${arch}-auto.iso.sha256"
+          done
 
       - name: Upload release candidate artifact
         uses: actions/upload-artifact@v4
         with:
           name: release-gate-candidate-${{ github.sha }}
           path: |
-            output/omnixys-debian-13-auto.iso
-            output/omnixys-debian-13-auto.iso.sha256
+            output/omnixys-debian-13-amd64-auto.iso
+            output/omnixys-debian-13-amd64-auto.iso.sha256
+            output/omnixys-debian-13-arm64-auto.iso
+            output/omnixys-debian-13-arm64-auto.iso.sha256
           retention-days: 7

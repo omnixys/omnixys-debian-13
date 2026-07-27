@@ -101,15 +101,18 @@ jobs:
       - name: Build ISO
         run: |
           chmod +x build.sh
-          ./build.sh --config "${{ matrix.config }}"
+          ./build.sh --config "${{ matrix.config }}" --arches amd64,arm64
       - name: Prepare artifact payload
         run: |
           set -euo pipefail
           short_sha="${GITHUB_SHA::7}"
           mkdir -p artifacts/ci
-          iso_name="omnixys-${{ matrix.backend }}-${short_sha}.iso"
-          cp output/omnixys-debian-13-auto.iso "artifacts/ci/${iso_name}"
-          sha256sum "artifacts/ci/${iso_name}" > "artifacts/ci/${iso_name}.sha256"
+          for arch in amd64 arm64; do
+            iso_src="output/omnixys-debian-13-${arch}-auto.iso"
+            iso_name="omnixys-${{ matrix.backend }}-${arch}-${short_sha}.iso"
+            cp "$iso_src" "artifacts/ci/${iso_name}"
+            sha256sum "artifacts/ci/${iso_name}" > "artifacts/ci/${iso_name}.sha256"
+          done
       - name: Upload CI ISO artifact
         uses: actions/upload-artifact@v4
         with:

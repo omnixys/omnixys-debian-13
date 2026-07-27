@@ -146,7 +146,7 @@ debian_verify() {
     if [[ "$actual" != "$expected_sha" ]]; then
       die "ISO SHA256 mismatch (expected: $expected_sha, actual: $actual). Remove cached ISO and rerun: rm -f '$ISO_SOURCE_PATH'"
     fi
-    printf '%s  %s\n' "$actual" "$ISO_FILE_NAME" >"$ARTIFACTS_DIR/source.iso.sha256"
+    printf '%s  %s\n' "$actual" "$ISO_FILE_NAME" >"$ARTIFACTS_DIR/source.${ARCH}.iso.sha256"
   else
     warn "DEBIAN_ISO_SHA256 not set; checksum verification skipped"
   fi
@@ -220,7 +220,7 @@ debian_extract_iso_tree() {
 }
 
 debian_package() {
-  ISO_OUTPUT_PATH="$ROOT_DIR/output/omnixys-debian-${DEBIAN_MAJOR}-auto.iso"
+  ISO_OUTPUT_PATH="$ROOT_DIR/output/omnixys-debian-${DEBIAN_MAJOR}-${ARCH}-auto.iso"
   local metadata_copy="$ROOT_DIR/logs/install.log"
 
   ensure_dir "$ROOT_DIR/output"
@@ -258,5 +258,5 @@ debian_package() {
 
   step "Generating output SHA256"
   sha256sum "$ISO_OUTPUT_PATH" | tee "$ISO_OUTPUT_PATH.sha256" >/dev/null
-  cp "$ISO_OUTPUT_PATH.sha256" "$ARTIFACTS_DIR/output.iso.sha256"
+  cp "$ISO_OUTPUT_PATH.sha256" "$ARTIFACTS_DIR/output.${ARCH}.iso.sha256"
 }

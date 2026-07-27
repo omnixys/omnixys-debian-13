@@ -94,65 +94,69 @@ jobs:
       - name: Build ISO
         run: |
           chmod +x build.sh
-          ./build.sh --config .release.env
+          ./build.sh --config .release.env --arches amd64,arm64
       - name: Prepare release assets
         id: assets
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts/release
-          base_name="omnixys-${{ matrix.distro }}-${{ steps.version.outputs.version }}"
-          iso_path="artifacts/release/${base_name}.iso"
-          cp output/omnixys-debian-13-auto.iso "$iso_path"
-          sha256sum "$iso_path" > "${iso_path}.sha256"
-          sha512sum "$iso_path" > "${iso_path}.sha512"
+          for arch in amd64 arm64; do
+            base_name="omnixys-${{ matrix.distro }}-${arch}-${{ steps.version.outputs.version }}"
+            iso_path="artifacts/release/${base_name}.iso"
+            cp "output/omnixys-debian-13-${arch}-auto.iso" "$iso_path"
+            sha256sum "$iso_path" > "${iso_path}.sha256"
+            sha512sum "$iso_path" > "${iso_path}.sha512"
 
-          jq -n \
-            --arg version "${{ steps.version.outputs.version }}" \
-            --arg gitCommit "${{ github.sha }}" \
-            --arg backend "${{ matrix.backend }}" \
-            --arg distro "${{ matrix.distro }}" \
-            --arg buildDate "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
-            --arg frameworkVersion "${{ steps.version.outputs.version }}" \
-            '{
-              version: $version,
-              gitCommit: $gitCommit,
-              backend: $backend,
-              distro: $distro,
-              buildDate: $buildDate,
-              frameworkVersion: $frameworkVersion
-            }' > "artifacts/release/${base_name}.build-info.json"
+            jq -n \
+              --arg version "${{ steps.version.outputs.version }}" \
+              --arg gitCommit "${{ github.sha }}" \
+              --arg backend "${{ matrix.backend }}" \
+              --arg distro "${{ matrix.distro }}" \
+              --arg arch "$arch" \
+              --arg buildDate "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+              --arg frameworkVersion "${{ steps.version.outputs.version }}" \
+              '{
+                version: $version,
+                gitCommit: $gitCommit,
+                backend: $backend,
+                distro: $distro,
+                arch: $arch,
+                buildDate: $buildDate,
+                frameworkVersion: $frameworkVersion
+              }' > "artifacts/release/${base_name}.build-info.json"
 
-          jq -n \
-            --arg bomFormat "CycloneDX" \
-            --arg specVersion "1.5" \
-            --arg serialNumber "urn:uuid:${{ github.run_id }}-${{ github.run_attempt }}" \
-            --arg timestamp "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
-            --arg name "$base_name" \
-            --arg version "${{ steps.version.outputs.version }}" \
-            '{
-              bomFormat: $bomFormat,
-              specVersion: $specVersion,
-              serialNumber: $serialNumber,
-              version: 1,
-              metadata: {
-                timestamp: $timestamp,
-                component: {
-                  type: "file",
-                  name: $name,
-                  version: $version
-                }
-              },
-              components: [
-                {
-                  type: "application",
-                  name: "omnixys-installer-framework",
-                  version: $version
-                }
-              ]
-            }' > "artifacts/release/${base_name}.sbom.cdx.json"
+            jq -n \
+              --arg bomFormat "CycloneDX" \
+              --arg specVersion "1.5" \
+              --arg serialNumber "urn:uuid:${{ github.run_id }}-${{ github.run_attempt }}-${arch}" \
+              --arg timestamp "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+              --arg name "$base_name" \
+              --arg version "${{ steps.version.outputs.version }}" \
+              '{
+                bomFormat: $bomFormat,
+                specVersion: $specVersion,
+                serialNumber: $serialNumber,
+                version: 1,
+                metadata: {
+                  timestamp: $timestamp,
+                  component: {
+                    type: "file",
+                    name: $name,
+                    version: $version
+                  }
+                },
+                components: [
+                  {
+                    type: "application",
+                    name: "omnixys-installer-framework",
+                    version: $version
+                  }
+                ]
+              }' > "artifacts/release/${base_name}.sbom.cdx.json"
+          done
 
-          echo "glob=artifacts/release/${base_name}*" >> "$GITHUB_OUTPUT"
+          echo "glob=artifacts/release/*" >> "$GITHUB_OUTPUT"
       - name: Upload release workflow artifact
         uses: actions/upload-artifact@v4
         with:

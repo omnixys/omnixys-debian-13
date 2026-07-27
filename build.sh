@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$ROOT_DIR/config.env"
 DRY_RUN="false"
 SHOW_VERSION="false"
+ARCHES_OVERRIDE=""
 
 # shellcheck disable=SC1091
 source "$ROOT_DIR/core/lib/common.sh"
@@ -19,6 +20,7 @@ Usage: ./build.sh [options]
 
 Options:
   --config <file>   Use a config profile file
+  --arches <list>   Build one or more architectures (comma-separated, e.g. amd64,arm64)
   --dry-run         Validate and simulate build without creating ISO
   --version         Print installer framework version
   -h, --help        Show this help
@@ -36,6 +38,11 @@ parse_args() {
       --dry-run)
         DRY_RUN="true"
         shift
+        ;;
+      --arches)
+        [[ $# -gt 1 ]] || die "--arches requires a value"
+        ARCHES_OVERRIDE="$2"
+        shift 2
         ;;
       --version)
         SHOW_VERSION="true"
@@ -101,6 +108,79 @@ print_version() {
   echo "Git commit: $commit"
 }
 
+collect_arches() {
+  local raw="${ARCHES_OVERRIDE:-${ARCHES:-${ARCH:-}}}"
+  [[ -n "$raw" ]] || die "No architecture configured. Set ARCH or pass --arches"
+
+  local -a parsed=()
+  local token
+  raw="${raw//,/ }"
+
+  for token in $raw; do
+    token="${token,,}"
+    [[ -n "$token" ]] || continue
+    parsed+=("$token")
+  done
+
+  [[ "${#parsed[@]}" -gt 0 ]] || die "No valid architectures parsed from: $raw"
+
+  # Deduplicate while preserving order.
+  local -A seen=()
+  local -a unique=()
+  for token in "${parsed[@]}"; do
+    if [[ -z "${seen[$token]:-}" ]]; then
+      seen[$token]=1
+      unique+=("$token")
+    fi
+  done
+
+  printf '%s\n' "${unique[@]}"
+}
+
+run_build_for_arch() {
+  local arch="$1"
+  ARCH="$arch"
+
+  step "Starting architecture build: $ARCH"
+
+  run_hook_dir "$ROOT_DIR/hooks/pre-build"
+  run_modules_phase "pre-build"
+
+  step "Backend validate()"
+  validate
+  readiness_ok "Config valid ($ARCH)"
+
+  step "Backend render()"
+  render
+  readiness_ok "Preseed generated ($ARCH)"
+
+  step "Backend build()"
+  build
+  readiness_ok "ISO source resolved ($ARCH)"
+
+  step "Backend verify()"
+  verify
+  readiness_ok "ISO/source verification passed ($ARCH)"
+
+  run_hook_dir "$ROOT_DIR/hooks/pre-install"
+  run_modules_phase "pre-install"
+
+  step "Backend package()"
+  package
+  if [[ "$DRY_RUN" == "true" ]]; then
+    readiness_ok "Builder passed ($ARCH)"
+    readiness_ok "Ready to build ($ARCH)"
+  else
+    readiness_ok "Output ISO packaged ($ARCH)"
+  fi
+
+  run_modules_phase "post-install"
+  run_hook_dir "$ROOT_DIR/hooks/post-install"
+
+  run_modules_phase "post-build"
+  run_hook_dir "$ROOT_DIR/hooks/post-build"
+}
+
 main() {
   parse_args "$@"
 
@@ -133,44 +213,15 @@ main() {
   validate_config_schema "$CONFIG_FILE" "$ROOT_DIR/installer/$INSTALLER/schema.keys"
   readiness_ok "Config schema checked"
 
-  run_hook_dir "$ROOT_DIR/hooks/pre-build"
-  run_modules_phase "pre-build"
+  mapfile -t arch_matrix < <(collect_arches)
+  info "Build architectures: ${arch_matrix[*]}"
 
-  step "Backend validate()"
-  validate
-  readiness_ok "Config valid"
+  local arch
+  for arch in "${arch_matrix[@]}"; do
+    run_build_for_arch "$arch"
+  done
 
-  step "Backend render()"
-  render
-  readiness_ok "Preseed generated"
-
-  step "Backend build()"
-  build
-  readiness_ok "ISO source resolved"
-
-  step "Backend verify()"
-  verify
-  readiness_ok "ISO/source verification passed"
-
-  run_hook_dir "$ROOT_DIR/hooks/pre-install"
-  run_modules_phase "pre-install"
-
-  step "Backend package()"
-  package
-  if [[ "$DRY_RUN" == "true" ]]; then
-    readiness_ok "Builder passed"
-    readiness_ok "Ready to build"
-  else
-    readiness_ok "Output ISO packaged"
-  fi
-
-  run_modules_phase "post-install"
-  run_hook_dir "$ROOT_DIR/hooks/post-install"
-
-  run_modules_phase "post-build"
-  run_hook_dir "$ROOT_DIR/hooks/post-build"
-
-  info "Build flow completed"
+  info "Build flow completed (${#arch_matrix[@]} architecture(s))"
   if [[ "$DRY_RUN" == "true" ]]; then
     print_readiness_report
   fi

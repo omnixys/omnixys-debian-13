@@ -70,8 +70,10 @@ nano config.env
 
 Build output:
 
-- `output/omnixys-debian-13-auto.iso`
-- `output/omnixys-debian-13-auto.iso.sha256`
+- `output/omnixys-debian-13-amd64-auto.iso`
+- `output/omnixys-debian-13-amd64-auto.iso.sha256`
+- `output/omnixys-debian-13-arm64-auto.iso`
+- `output/omnixys-debian-13-arm64-auto.iso.sha256`
 - `logs/build.log`
 - `logs/install.log`
 
@@ -82,6 +84,7 @@ Build output:
 ./build.sh --version
 ./build.sh --dry-run
 ./build.sh --config configs/homelab.env
+./build.sh --config configs/production.env --arches amd64,arm64
 ```
 
 ## Key Configuration
@@ -91,6 +94,7 @@ Framework level:
 - `CONFIG_SCHEMA_VERSION=1`
 - `INSTALLER=debian-preseed`
 - `ARCH=amd64`
+- `ARCHES=amd64,arm64` (optional multi-arch build list)
 - `INSTALLER_VERSION=1.0.0`
 
 Debian backend:
