@@ -160,9 +160,136 @@ debian_partition_mode_values() {
 }
 
 debian_compose_disk_early_command_auto() {
-  cat <<'EOF'
-LOG_FILE="/var/log/omnixys-disk-detect.log"; INSTALL_DEVICE="$(awk '$2 == "/cdrom" {print $1; exit}' /proc/mounts)"; [ -n "$INSTALL_DEVICE" ] || INSTALL_DEVICE="$(awk '$2 == "/hd-media" {print $1; exit}' /proc/mounts)"; INSTALL_PARENT="$INSTALL_DEVICE"; case "$INSTALL_PARENT" in /dev/nvme*n*p[0-9]*|/dev/mmcblk*p[0-9]*) INSTALL_PARENT="${INSTALL_PARENT%p[0-9]*}" ;; /dev/*[0-9]) INSTALL_PARENT="${INSTALL_PARENT%[0-9]*}" ;; esac; ALL_DISKS="$(list-devices disk 2>/dev/null || true)"; CANDIDATES=""; FALLBACK_CANDIDATES=""; for DISK in $ALL_DISKS; do BASE="${DISK#/dev/}"; case "$BASE" in loop*|ram*|fd*|sr*) continue ;; esac; [ "$DISK" = "$INSTALL_PARENT" ] && continue; [ -b "$DISK" ] || continue; FALLBACK_CANDIDATES="${FALLBACK_CANDIDATES}${DISK}\n"; REMOVABLE="0"; [ -r "/sys/block/$BASE/removable" ] && REMOVABLE="$(cat "/sys/block/$BASE/removable" 2>/dev/null || echo 0)"; [ "$REMOVABLE" = "0" ] || continue; CANDIDATES="${CANDIDATES}${DISK}\n"; done; if [ -n "$CANDIDATES" ]; then SELECT_POOL="$CANDIDATES"; POOL_KIND="non-removable"; else SELECT_POOL="$FALLBACK_CANDIDATES"; POOL_KIND="fallback-all"; fi; SORTED_POOL="$(printf "%b" "$SELECT_POOL" | sed '/^$/d' | sort -u)"; COUNT="$(printf "%s\n" "$SORTED_POOL" | sed '/^$/d' | wc -l | tr -d ' ')"; TARGET=""; for PATTERN in '/dev/nvme*' '/dev/vd*' '/dev/xvd*' '/dev/sd*' '/dev/mmcblk*' '/dev/*'; do TARGET="$(printf "%s\n" "$SORTED_POOL" | sed '/^$/d' | grep -E "^${PATTERN}$" | head -n1 || true)"; [ -n "$TARGET" ] && break; done; { echo "omnixys: auto disk detect"; echo "install_device=${INSTALL_DEVICE:-unknown}"; echo "install_parent=${INSTALL_PARENT:-unknown}"; echo "pool_kind=$POOL_KIND"; echo "all_disks=$(printf '%s' "$ALL_DISKS" | tr '\n' ' ')"; echo "candidates=$(printf '%b' "$SORTED_POOL" | tr '\n' ' ')"; echo "candidate_count=$COUNT"; echo "selected=${TARGET:-none}"; if command -v lsblk >/dev/null 2>&1; then echo "lsblk:"; lsblk 2>&1; fi; echo "proc_partitions:"; cat /proc/partitions 2>&1; } >"$LOG_FILE"; [ -n "$TARGET" ] || { echo "omnixys: auto disk detect failed (no suitable target)" >>"$LOG_FILE"; exit 1; }; debconf-set partman-auto/disk "$TARGET"
+  printf '%s' "sh /cdrom/omnixys-disk-detect.sh"
+}
+
+debian_render_disk_detect_script() {
+  local out="$GENERATED_DIR/omnixys-disk-detect.sh"
+  cat >"$out" <<'EOF'
+#!/bin/sh
+set -x
+exec >/var/log/omnixys-disk-detect.log 2>&1
+
+normalize_parent() {
+  dev="$1"
+  case "$dev" in
+    /dev/nvme*n*p[0-9]*) printf '%s\n' "${dev%p[0-9]*}" ;;
+    /dev/mmcblk*p[0-9]*) printf '%s\n' "${dev%p[0-9]*}" ;;
+    /dev/*[0-9]) printf '%s\n' "${dev%[0-9]*}" ;;
+    *) printf '%s\n' "$dev" ;;
+  esac
+}
+
+is_ignored_base() {
+  base="$1"
+  case "$base" in
+    loop*|ram*|fd*|sr*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+INSTALL_DEVICE="$(awk '$2 == "/cdrom" {print $1; exit}' /proc/mounts)"
+if [ -z "$INSTALL_DEVICE" ]; then
+  INSTALL_DEVICE="$(awk '$2 == "/hd-media" {print $1; exit}' /proc/mounts)"
+fi
+if [ -z "$INSTALL_DEVICE" ]; then
+  INSTALL_DEVICE="$(awk '$3 ~ /iso9660/ {print $1; exit}' /proc/mounts)"
+fi
+INSTALL_PARENT="$(normalize_parent "$INSTALL_DEVICE")"
+
+ALL_DISKS="$(list-devices disk 2>/dev/null || true)"
+echo "INSTALL_DEVICE=$INSTALL_DEVICE"
+echo "INSTALL_PARENT=$INSTALL_PARENT"
+echo "list-devices disk:"
+printf '%s\n' "$ALL_DISKS"
+
+if command -v lsblk >/dev/null 2>&1; then
+  echo "lsblk:"
+  lsblk
+fi
+
+echo "proc_partitions:"
+cat /proc/partitions || true
+
+NON_REMOVABLE_POOL=""
+FALLBACK_POOL=""
+
+for DISK in $ALL_DISKS; do
+  BASE="${DISK#/dev/}"
+
+  if is_ignored_base "$BASE"; then
+    echo "reject $DISK reason=ignored-base"
+    continue
+  fi
+
+  if [ "$DISK" = "$INSTALL_PARENT" ]; then
+    echo "reject $DISK reason=install-media"
+    continue
+  fi
+
+  if [ ! -b "$DISK" ]; then
+    echo "reject $DISK reason=not-block"
+    continue
+  fi
+
+  FALLBACK_POOL="${FALLBACK_POOL}${DISK}\n"
+
+  REMOVABLE="0"
+  if [ -r "/sys/block/$BASE/removable" ]; then
+    REMOVABLE="$(cat "/sys/block/$BASE/removable" 2>/dev/null || echo 0)"
+  fi
+
+  if [ "$REMOVABLE" = "0" ]; then
+    NON_REMOVABLE_POOL="${NON_REMOVABLE_POOL}${DISK}\n"
+    echo "candidate $DISK removable=$REMOVABLE"
+  else
+    echo "reject $DISK reason=removable removable=$REMOVABLE"
+  fi
+done
+
+SELECT_POOL="$NON_REMOVABLE_POOL"
+POOL_KIND="non-removable"
+if [ -z "$(printf '%b' "$SELECT_POOL" | sed '/^$/d')" ]; then
+  SELECT_POOL="$FALLBACK_POOL"
+  POOL_KIND="fallback-all"
+fi
+
+SORTED_POOL="$(printf '%b' "$SELECT_POOL" | sed '/^$/d' | sort -u)"
+echo "POOL_KIND=$POOL_KIND"
+echo "SORTED_POOL=$(printf '%s' "$SORTED_POOL" | tr '\n' ' ')"
+
+pick_first_match() {
+  prefix="$1"
+  printf '%s\n' "$SORTED_POOL" | sed '/^$/d' | while IFS= read -r d; do
+    case "$d" in
+      "$prefix"*)
+        printf '%s\n' "$d"
+        break
+        ;;
+    esac
+  done
+}
+
+TARGET=""
+if [ -z "$TARGET" ]; then TARGET="$(pick_first_match /dev/nvme)"; fi
+if [ -z "$TARGET" ]; then TARGET="$(pick_first_match /dev/vd)"; fi
+if [ -z "$TARGET" ]; then TARGET="$(pick_first_match /dev/sd)"; fi
+if [ -z "$TARGET" ]; then TARGET="$(pick_first_match /dev/xvd)"; fi
+if [ -z "$TARGET" ]; then TARGET="$(pick_first_match /dev/mmcblk)"; fi
+if [ -z "$TARGET" ]; then TARGET="$(printf '%s\n' "$SORTED_POOL" | sed '/^$/d' | head -n1)"; fi
+
+echo "TARGET=$TARGET"
+
+if [ -n "$TARGET" ] && [ -b "$TARGET" ]; then
+  debconf-set partman-auto/disk "$TARGET" || true
+  echo "debconf-set partman-auto/disk -> $TARGET"
+else
+  echo "no valid target selected; leaving partman-auto/disk unchanged"
+fi
+
+exit 0
 EOF
+  chmod +x "$out"
 }
 
 debian_compose_disk_early_command_by_id() {
@@ -250,6 +377,9 @@ debian_render() {
 
   debian_partition_mode_values
   debian_resolve_target_disk
+  if [[ "$TARGET_DISK_MODE" == "auto" ]]; then
+    debian_render_disk_detect_script
+  fi
   debian_compose_preseed_early_command
   TASKSEL_FIRST="$(debian_compose_tasksel)"
   PKGSEL_INCLUDE="$(debian_compose_pkgsel)"

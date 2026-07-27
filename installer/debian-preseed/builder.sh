@@ -240,6 +240,10 @@ debian_package() {
   step "Injecting generated files into ISO tree"
   run_cmd cp "$GENERATED_DIR/preseed.cfg" "$ISO_TREE_DIR/preseed.cfg"
   run_cmd cp "$GENERATED_DIR/installer-info.txt" "$ISO_TREE_DIR/omnixys-installer-info.txt"
+  if [[ -f "$GENERATED_DIR/omnixys-disk-detect.sh" ]]; then
+    run_cmd cp "$GENERATED_DIR/omnixys-disk-detect.sh" "$ISO_TREE_DIR/omnixys-disk-detect.sh"
+    run_cmd chmod 0755 "$ISO_TREE_DIR/omnixys-disk-detect.sh"
+  fi
 
   step "Patching boot configuration"
   debian_patch_boot_configs "$ISO_TREE_DIR"
