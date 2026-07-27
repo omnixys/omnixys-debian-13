@@ -327,12 +327,93 @@ EOF
   esac
 }
 
-debian_compose_preseed_early_command() {
-  PRESEED_EARLY_COMMAND="$DISK_EARLY_COMMAND"
+debian_render_early_script() {
+  local out="$GENERATED_DIR/omnixys-early.sh"
+  cat >"$out" <<EOF
+#!/bin/sh
+set -x
+exec >/var/log/omnixys-early.log 2>&1
 
-  if [[ "$IDENTITY_SOURCE" != "none" ]]; then
-    PRESEED_EARLY_COMMAND+="; $(debian_compose_identity_early_command)"
+TARGET_DISK_MODE="$TARGET_DISK_MODE"
+TARGET_DISK_BY_ID="${TARGET_DISK_BY_ID:-}"
+IDENTITY_SOURCE="${IDENTITY_SOURCE:-none}"
+IDENTITY_REQUIRED="${IDENTITY_REQUIRED:-false}"
+IDENTITY_FILE_PATH="${IDENTITY_FILE_PATH:-/identity.env}"
+IDENTITY_DEVICE_LABEL="${IDENTITY_DEVICE_LABEL:-OMNIXYS_IDENTITY}"
+
+run_disk_step() {
+  case "\$TARGET_DISK_MODE" in
+    auto)
+      if [ -x /cdrom/omnixys-disk-detect.sh ]; then
+        sh /cdrom/omnixys-disk-detect.sh || echo "disk helper failed"
+      else
+        echo "disk helper missing: /cdrom/omnixys-disk-detect.sh"
+      fi
+      ;;
+    by-id)
+      TARGET="\$(readlink -f "\$TARGET_DISK_BY_ID" 2>/dev/null || true)"
+      if [ -n "\$TARGET" ] && [ -b "\$TARGET" ]; then
+        debconf-set partman-auto/disk "\$TARGET" || echo "debconf-set failed for by-id target"
+      else
+        echo "by-id target not resolvable: \$TARGET_DISK_BY_ID"
+      fi
+      ;;
+    manual)
+      echo "manual disk mode: no early disk override"
+      ;;
+    *)
+      echo "unknown TARGET_DISK_MODE=\$TARGET_DISK_MODE"
+      ;;
+  esac
+}
+
+run_identity_step() {
+  [ "\$IDENTITY_SOURCE" = "usb-env" ] || return 0
+
+  IDENTITY_FILE=""
+  IDENTITY_MOUNTED="false"
+  mkdir -p /var/lib/omnixys /media/omnixys-identity
+
+  if [ -r "/cdrom\$IDENTITY_FILE_PATH" ]; then
+    IDENTITY_FILE="/cdrom\$IDENTITY_FILE_PATH"
+  elif [ -b "/dev/disk/by-label/\$IDENTITY_DEVICE_LABEL" ]; then
+    if mount -o ro "/dev/disk/by-label/\$IDENTITY_DEVICE_LABEL" /media/omnixys-identity >/dev/null 2>&1; then
+      IDENTITY_MOUNTED="true"
+    fi
+    if [ -r "/media/omnixys-identity\$IDENTITY_FILE_PATH" ]; then
+      IDENTITY_FILE="/media/omnixys-identity\$IDENTITY_FILE_PATH"
+    fi
   fi
+
+  if [ -z "\$IDENTITY_FILE" ]; then
+    echo "identity file not found"
+    if [ "\$IDENTITY_REQUIRED" = "true" ]; then
+      echo "identity is required but missing"
+    fi
+  else
+    cp "\$IDENTITY_FILE" /var/lib/omnixys/identity.env
+    . /var/lib/omnixys/identity.env
+    [ -n "\${OMNIXYS_HOSTNAME:-}" ] && debconf-set netcfg/get_hostname "\$OMNIXYS_HOSTNAME" || true
+    [ -n "\${OMNIXYS_DOMAIN:-}" ] && debconf-set netcfg/get_domain "\$OMNIXYS_DOMAIN" || true
+    [ -n "\${OMNIXYS_FULLNAME:-}" ] && debconf-set passwd/user-fullname "\$OMNIXYS_FULLNAME" || true
+    [ -n "\${OMNIXYS_USERNAME:-}" ] && debconf-set passwd/username "\$OMNIXYS_USERNAME" || true
+    [ -n "\${OMNIXYS_PASSWORD_HASH:-}" ] && debconf-set passwd/user-password-crypted "\$OMNIXYS_PASSWORD_HASH" || true
+  fi
+
+  if [ "\$IDENTITY_MOUNTED" = "true" ]; then
+    umount /media/omnixys-identity >/dev/null 2>&1 || true
+  fi
+}
+
+run_disk_step
+run_identity_step
+exit 0
+EOF
+  chmod +x "$out"
+}
+
+debian_compose_preseed_early_command() {
+  PRESEED_EARLY_COMMAND="sh /cdrom/omnixys-early.sh"
 }
 
 debian_resolve_target_disk() {
@@ -391,6 +472,7 @@ debian_render() {
 
   debian_partition_mode_values
   debian_resolve_target_disk
+  debian_render_early_script
   if [[ "$TARGET_DISK_MODE" == "auto" ]]; then
     debian_render_disk_detect_script
   fi

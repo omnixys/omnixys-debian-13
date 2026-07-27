@@ -14,7 +14,7 @@ grep -q "__PARTMAN_METHOD__" "$TEMPLATE"
 grep -q "__TASKSEL_FIRST__" "$TEMPLATE"
 grep -q "__LATE_COMMAND__" "$TEMPLATE"
 
-grep -q "sh /cdrom/omnixys-disk-detect.sh" "$RENDERER"
+grep -q "sh /cdrom/omnixys-early.sh" "$RENDERER"
 grep -q "set -x" "$RENDERER"
 grep -q "exec >/var/log/omnixys-disk-detect.log 2>&1" "$RENDERER"
 
