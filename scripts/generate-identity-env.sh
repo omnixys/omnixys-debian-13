@@ -10,6 +10,7 @@ Options:
   --domain <value>        Optional domain.
   --fullname <value>      Required full name.
   --username <value>      Required username.
+  --ssh-public-key <key>  Optional SSH public key for runtime override.
   --password <value>      Use the provided cleartext password.
   --generate-password     Generate a random password and print it once.
   --output <file>         Output file path. Default: ./identity.env
@@ -40,6 +41,7 @@ main() {
   local domain=""
   local fullname=""
   local username=""
+  local ssh_public_key=""
   local password=""
   local output_file="identity.env"
   local auto_password="false"
@@ -60,6 +62,10 @@ main() {
         ;;
       --username)
         username="${2:-}"
+        shift 2
+        ;;
+      --ssh-public-key)
+        ssh_public_key="${2:-}"
         shift 2
         ;;
       --password)
@@ -105,6 +111,7 @@ OMNIXYS_HOSTNAME=$hostname
 OMNIXYS_DOMAIN=$domain
 OMNIXYS_FULLNAME=$fullname
 OMNIXYS_USERNAME=$username
+OMNIXYS_SSH_PUBLIC_KEY=$ssh_public_key
 OMNIXYS_PASSWORD_HASH=$password_hash
 EOF
 

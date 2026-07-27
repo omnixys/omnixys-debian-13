@@ -90,19 +90,21 @@ debian_compose_late_command() {
   cmd+="; in-target apt-get update"
   cmd+="; in-target DEBIAN_FRONTEND=noninteractive apt-get -y upgrade"
 
+  # Determine the effective install user at runtime so identity overrides stay consistent.
+  cmd+="; INSTALL_USER=\"\$(in-target awk -F: '\$3 == 1000 { print \$1; exit }' /etc/passwd 2>/dev/null || true)\""
+  cmd+="; [ -n \"\$INSTALL_USER\" ] || INSTALL_USER=\"${USERNAME}\""
+  cmd+="; INSTALL_SSH_KEY=\"${SSH_PUBLIC_KEY:-}\""
+  cmd+="; INSTALL_HOSTNAME=\"\""
+  cmd+="; if [ -r /var/lib/omnixys/identity.env ]; then . /var/lib/omnixys/identity.env; [ -n \"\${OMNIXYS_USERNAME:-}\" ] && INSTALL_USER=\"\$OMNIXYS_USERNAME\"; [ -n \"\${OMNIXYS_SSH_PUBLIC_KEY:-}\" ] && INSTALL_SSH_KEY=\"\$OMNIXYS_SSH_PUBLIC_KEY\"; [ -n \"\${OMNIXYS_HOSTNAME:-}\" ] && INSTALL_HOSTNAME=\"\$OMNIXYS_HOSTNAME\"; fi"
+
   if [[ "$sudo_nopasswd" == "true" ]]; then
-    cmd+="; in-target sh -c 'printf \"%s\\n\" \"${USERNAME} ALL=(ALL) NOPASSWD:ALL\" > /etc/sudoers.d/90-${USERNAME}-nopasswd'"
-    cmd+="; in-target chmod 440 /etc/sudoers.d/90-${USERNAME}-nopasswd"
-    cmd+="; in-target visudo -cf /etc/sudoers.d/90-${USERNAME}-nopasswd"
+    cmd+="; in-target env INSTALL_USER=\"\$INSTALL_USER\" sh -c 'printf \"%s\\n\" \"$INSTALL_USER ALL=(ALL) NOPASSWD:ALL\" > /etc/sudoers.d/90-omnixys-nopasswd'"
+    cmd+="; in-target chmod 440 /etc/sudoers.d/90-omnixys-nopasswd"
+    cmd+="; in-target visudo -cf /etc/sudoers.d/90-omnixys-nopasswd"
   fi
 
-  if [[ -n "${SSH_PUBLIC_KEY:-}" ]]; then
-    cmd+="; in-target mkdir -p /home/${USERNAME}/.ssh"
-    cmd+="; in-target sh -c 'printf %s \"${SSH_PUBLIC_KEY}\" > /home/${USERNAME}/.ssh/authorized_keys'"
-    cmd+="; in-target chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.ssh"
-    cmd+="; in-target chmod 700 /home/${USERNAME}/.ssh"
-    cmd+="; in-target chmod 600 /home/${USERNAME}/.ssh/authorized_keys"
-  fi
+  cmd+="; if [ -n \"\$INSTALL_HOSTNAME\" ]; then in-target sh -c \"printf '%s\\n' \\\"\$INSTALL_HOSTNAME\\\" > /etc/hostname\"; in-target hostnamectl set-hostname \"\$INSTALL_HOSTNAME\" >/dev/null 2>&1 || true; fi"
+  cmd+="; if [ -n \"\$INSTALL_SSH_KEY\" ]; then in-target env INSTALL_USER=\"\$INSTALL_USER\" INSTALL_SSH_KEY=\"\$INSTALL_SSH_KEY\" sh -c 'mkdir -p /home/$INSTALL_USER/.ssh; printf %s \"$INSTALL_SSH_KEY\" > /home/$INSTALL_USER/.ssh/authorized_keys; chown -R $INSTALL_USER:$INSTALL_USER /home/$INSTALL_USER/.ssh; chmod 700 /home/$INSTALL_USER/.ssh; chmod 600 /home/$INSTALL_USER/.ssh/authorized_keys'; fi"
 
   printf '%s' "$cmd"
 }

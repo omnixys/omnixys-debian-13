@@ -244,7 +244,6 @@ Safety behavior:
 
 The Debian backend can optionally override identity values at install time from an external `identity.env` file.
 
-- `IDENTITY_SOURCE=usb-env` enables lookup of `/identity.env` on `/cdrom` or on a removable medium labeled `OMNIXYS_IDENTITY`.
 - `IDENTITY_SOURCE=usb-env` enables lookup of `/identity.env` on `/cdrom` or on a removable medium labeled by `IDENTITY_DEVICE_LABEL` (for example `OMNIXYS_ID`).
 - `IDENTITY_REQUIRED=true` aborts installation early when the identity file is missing.
 - Supported variables in `identity.env` are:
@@ -252,6 +251,7 @@ The Debian backend can optionally override identity values at install time from 
 - `OMNIXYS_DOMAIN` (optional)
 - `OMNIXYS_FULLNAME`
 - `OMNIXYS_USERNAME`
+- `OMNIXYS_SSH_PUBLIC_KEY` (optional)
 - `OMNIXYS_PASSWORD_HASH`
 
 Example:
@@ -260,6 +260,7 @@ Example:
 OMNIXYS_HOSTNAME=omnixys-node-01
 OMNIXYS_FULLNAME=Node Admin
 OMNIXYS_USERNAME=ops
+OMNIXYS_SSH_PUBLIC_KEY=ssh-ed25519 AAAA... user@host
 OMNIXYS_PASSWORD_HASH=$6$rounds=656000$example$examplehash
 ```
 
@@ -270,6 +271,7 @@ bash scripts/generate-identity-env.sh \
 	--hostname omnixys-node-01 \
 	--fullname "Node Admin" \
 	--username ops \
+	--ssh-public-key "ssh-ed25519 AAAA... user@host" \
 	--generate-password \
 	--output identity.env
 ```
