@@ -296,6 +296,11 @@ if [ -n "$TARGET" ] && [ -b "$TARGET" ]; then
   else
     echo "debconf-set failed for TARGET=$TARGET"
   fi
+  if debconf-set grub-installer/bootdev "$TARGET"; then
+    echo "debconf-set grub-installer/bootdev -> $TARGET"
+  else
+    echo "debconf-set grub-installer/bootdev failed for TARGET=$TARGET"
+  fi
 else
   echo "no valid target selected; partman-auto/disk not modified"
 fi
@@ -354,6 +359,7 @@ run_disk_step() {
       TARGET="\$(readlink -f "\$TARGET_DISK_BY_ID" 2>/dev/null || true)"
       if [ -n "\$TARGET" ] && [ -b "\$TARGET" ]; then
         debconf-set partman-auto/disk "\$TARGET" || echo "debconf-set failed for by-id target"
+        debconf-set grub-installer/bootdev "\$TARGET" || echo "debconf-set grub bootdev failed for by-id target"
       else
         echo "by-id target not resolvable: \$TARGET_DISK_BY_ID"
       fi

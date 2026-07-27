@@ -13,6 +13,7 @@ grep -q "__PRESEED_EARLY_COMMAND__" "$TEMPLATE"
 grep -q "__PARTMAN_METHOD__" "$TEMPLATE"
 grep -q "__TASKSEL_FIRST__" "$TEMPLATE"
 grep -q "__LATE_COMMAND__" "$TEMPLATE"
+grep -q "grub-installer/bootdev string __TARGET_DISK__" "$TEMPLATE"
 
 grep -q "sh /cdrom/omnixys-early.sh" "$RENDERER"
 grep -q "set -x" "$RENDERER"

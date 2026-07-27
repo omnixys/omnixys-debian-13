@@ -53,6 +53,7 @@ d-i pkgsel/install-language-support boolean false
 ### Bootloader
 d-i grub-installer/only_debian boolean true
 d-i grub-installer/with_other_os boolean false
+d-i grub-installer/bootdev string __TARGET_DISK__
 
 ### Late command
 d-i preseed/late_command string __LATE_COMMAND__
