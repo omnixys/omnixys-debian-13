@@ -280,11 +280,24 @@ if [ -z "$TARGET" ]; then TARGET="$(printf '%s\n' "$SORTED_POOL" | sed '/^$/d' |
 
 echo "TARGET=$TARGET"
 
+if [ -z "$TARGET" ] || [ ! -b "$TARGET" ]; then
+  for fallback in /dev/nvme0n1 /dev/vda /dev/sda; do
+    if [ -b "$fallback" ]; then
+      TARGET="$fallback"
+      echo "fallback target=$TARGET"
+      break
+    fi
+  done
+fi
+
 if [ -n "$TARGET" ] && [ -b "$TARGET" ]; then
-  debconf-set partman-auto/disk "$TARGET" || true
-  echo "debconf-set partman-auto/disk -> $TARGET"
+  if debconf-set partman-auto/disk "$TARGET"; then
+    echo "debconf-set partman-auto/disk -> $TARGET"
+  else
+    echo "debconf-set failed for TARGET=$TARGET"
+  fi
 else
-  echo "no valid target selected; leaving partman-auto/disk unchanged"
+  echo "no valid target selected; partman-auto/disk not modified"
 fi
 
 exit 0
@@ -334,7 +347,8 @@ debian_resolve_target_disk() {
       DISK_EARLY_COMMAND="$(debian_compose_disk_early_command_by_id)"
       ;;
     auto)
-      RESOLVED_TARGET_DISK="/dev/omnixys-auto-detect"
+      # Use a real bootstrap value; early_command replaces it with detected target.
+      RESOLVED_TARGET_DISK="/dev/sda"
       DISK_EARLY_COMMAND="$(debian_compose_disk_early_command_auto)"
       ;;
     *)
