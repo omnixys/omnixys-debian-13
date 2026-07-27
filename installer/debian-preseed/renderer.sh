@@ -421,16 +421,13 @@ debian_resolve_target_disk() {
   case "$TARGET_DISK_MODE" in
     manual)
       RESOLVED_TARGET_DISK="$TARGET_DISK"
-      DISK_EARLY_COMMAND="true"
       ;;
     by-id)
       RESOLVED_TARGET_DISK="$TARGET_DISK_BY_ID"
-      DISK_EARLY_COMMAND="$(debian_compose_disk_early_command_by_id)"
       ;;
     auto)
       # Use a real bootstrap value; early_command replaces it with detected target.
       RESOLVED_TARGET_DISK="/dev/sda"
-      DISK_EARLY_COMMAND="$(debian_compose_disk_early_command_auto)"
       ;;
     *)
       die "Unsupported TARGET_DISK_MODE in renderer: $TARGET_DISK_MODE"
