@@ -3,6 +3,16 @@
 All notable changes in this project will be documented in this file.
 
 
+## [1.1.0](https://github.com/omnixys/omnixys-debian-13/compare/v1.0.1...v1.1.0) (2026-08-15)
+
+### Identity
+
+* **Identity:** enable dynamic VM provisioning ([](https://github.com/omnixys/omnixys-debian-13/commit/5626b8db0b8b56779efdcaf0cb1faf2a7acbb917))
+
+### Other
+
+* **Other:** Merge branch 'main' of https://github.com/omnixys/omnixys-debian-13 ([](https://github.com/omnixys/omnixys-debian-13/commit/45c9939f006c4e1dc101f584eef52c6322a0dd8b))
+
 ## [1.0.1](https://github.com/omnixys/omnixys-debian-13/compare/v1.0.0...v1.0.1) (2026-08-15)
 
 ### Deps
