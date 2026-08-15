@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/omnixys/omnixys-debian-13/compare/v1.5.0...v1.5.1) (2026-08-15)
+
+
+### Bug Fixes
+
+* **builder:** harden Debian ISO download against mirror flakiness ([7e05799](https://github.com/omnixys/omnixys-debian-13/commit/7e05799a12566d47fb68ad4941b5cad5d6ae875b))
+
 ## [1.5.0](https://github.com/omnixys/omnixys-debian-13/compare/v1.4.4...v1.5.0) (2026-08-15)
 
 
