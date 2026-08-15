@@ -3,6 +3,12 @@
 All notable changes in this project will be documented in this file.
 
 
+## [1.2.1](https://github.com/omnixys/omnixys-debian-13/compare/v1.2.0...v1.2.1) (2026-08-15)
+
+### Vm
+
+* **Vm:** change defaults ([](https://github.com/omnixys/omnixys-debian-13/commit/14f6fc097109335df845ed3c1230ddba4edb084c))
+
 ## [1.2.0](https://github.com/omnixys/omnixys-debian-13/compare/v1.1.1...v1.2.0) (2026-08-15)
 
 ### Installer
