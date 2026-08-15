@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/omnixys/omnixys-debian-13/compare/v1.4.4...v1.5.0) (2026-08-15)
+
+
+### Features
+
+* **release:** publish dedicated VM installation images ([9a9dd9c](https://github.com/omnixys/omnixys-debian-13/commit/9a9dd9ceb52ccd80b8165faf8393c9591c781087))
+
 ## [1.4.4](https://github.com/omnixys/omnixys-debian-13/compare/v1.4.3...v1.4.4) (2026-07-27)
 
 
