@@ -3,6 +3,12 @@
 All notable changes in this project will be documented in this file.
 
 
+## [1.1.1](https://github.com/omnixys/omnixys-debian-13/compare/v1.1.0...v1.1.1) (2026-08-15)
+
+### Identity
+
+* **Identity:** enable dynamic VM provisioning ([](https://github.com/omnixys/omnixys-debian-13/commit/78caeea4be51ca4b1c972f96c0f64ed3fb598b4e))
+
 ## [1.1.0](https://github.com/omnixys/omnixys-debian-13/compare/v1.0.1...v1.1.0) (2026-08-15)
 
 ### Identity
