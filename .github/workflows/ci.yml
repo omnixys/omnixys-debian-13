@@ -67,11 +67,13 @@ jobs:
           chmod +x tests/test-validator-rules.sh
           chmod +x tests/test-builder-remaster.sh
           chmod +x tests/test-identity.sh
+          chmod +x tests/test-builder-embedding.sh
           ./tests/test-installer-debian-preseed.sh
           ./tests/test-renderer-template.sh
           ./tests/test-validator-rules.sh
           ./tests/test-builder-remaster.sh
           ./tests/test-identity.sh
+          ./tests/test-builder-embedding.sh
 
   test-modules:
     needs: test-core
@@ -103,6 +105,10 @@ jobs:
           chmod +x build.sh
           chmod +x tests/test-dry-run.sh
           ./tests/test-dry-run.sh
+      - name: Identity embed gate (ISO inspection via xorriso)
+        run: |
+          chmod +x tests/test-builder-embedding.sh
+          ./tests/test-builder-embedding.sh
 
   test-boot-tools:
     needs: test-iso

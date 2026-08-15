@@ -109,7 +109,8 @@ Install behavior:
 - `IDENTITY_SOURCE=none|usb-env`
 - `IDENTITY_REQUIRED=true|false`
 - `IDENTITY_FILE_PATH=/identity.env`
-- `IDENTITY_DEVICE_LABEL=OMNIXYS_IDENTITY`
+- `IDENTITY_DEVICE_LABEL=OMNIXYS_ID`
+- `IDENTITY_EMBED=true|false` (build-time only; see Runtime Identity Override)
 - `TARGET_DISK_MODE=auto|by-id|manual`
 - `TARGET_DISK_BY_ID=/dev/disk/by-id/...` (required for `by-id`)
 - `TARGET_DISK=/dev/...` (required for `manual`)
@@ -303,6 +304,28 @@ The Debian backend can optionally override identity values at install time from 
 - `OMNIXYS_USERNAME`
 - `OMNIXYS_SSH_PUBLIC_KEY` (optional)
 - `OMNIXYS_PASSWORD_HASH`
+
+### Build-time identity embedding (`IDENTITY_EMBED`)
+
+Embedding a runtime `identity.env` into the ISO is controlled independently of the
+runtime lookup mechanism above, by the build-time switch `IDENTITY_EMBED`:
+
+- `IDENTITY_EMBED=true` (default): if a local `./identity.env` is present at build
+  time, it is baked into the ISO as `/identity.env` and picked up automatically at
+  install time. This enables self-provisioning images (used by production/local
+  builds).
+- `IDENTITY_EMBED=false`: the ISO is always built **without** a baked identity, even
+  if `./identity.env` is present. Runtime provisioning still works by attaching a
+  medium labeled `OMNIXYS_ID`. Published `-vm` release images are built with this
+  switch forced to `false`.
+
+The build enforces the guarantee: when `IDENTITY_EMBED=false`, packaging fails if
+`/identity.env` is nonetheless present in the final ISO. Published GitHub Release VM
+assets additionally run an independent post-build check confirming no `/identity.env`
+is shipped in the `-vm.iso`.
+
+> Embedding a baked identity is a **build-time** policy. Disabling it does **not**
+> turn off runtime identity provisioning from an attached `OMNIXYS_ID` medium.
 
 Network configuration is unaffected: the installer always uses DHCP, so no static IP is enforced for bare metal or VMs.
 

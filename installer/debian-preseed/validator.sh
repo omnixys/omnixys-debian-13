@@ -143,6 +143,20 @@ debian_validate_identity_config() {
     [[ "$IDENTITY_FILE_PATH" == /* ]] || die "IDENTITY_FILE_PATH must start with /: $IDENTITY_FILE_PATH"
     [[ -n "$IDENTITY_DEVICE_LABEL" ]] || die "IDENTITY_DEVICE_LABEL must not be empty when IDENTITY_SOURCE=usb-env"
   fi
+
+  # IDENTITY_EMBED gates whether a local ./identity.env is baked into the
+  # output ISO. It is unrelated to the runtime usb-env identity lookup. Default
+  # is true (backwards-compatible: local builds may self-provision). Published
+  # VM release images must set IDENTITY_EMBED=false explicitly (see release.yml).
+  if [[ -n "${IDENTITY_EMBED:-}" ]]; then
+    debian_validate_bool IDENTITY_EMBED
+  else
+    IDENTITY_EMBED="true"
+  fi
+
+  if [[ "$IDENTITY_EMBED" == "true" ]] && [[ "$IDENTITY_SOURCE" == "none" ]]; then
+    warn "IDENTITY_EMBED=true with IDENTITY_SOURCE=none: identity.env (if present) will be baked in, but runtime lookup is disabled"
+  fi
 }
 
 debian_validate_password_input() {

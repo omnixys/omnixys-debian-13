@@ -208,10 +208,29 @@ jobs:
           set -euo pipefail
           cp configs/vm.env .release.env
           sed -i "s/^INSTALLER_VERSION=.*/INSTALLER_VERSION=${{ steps.version.outputs.version }}/" .release.env
+          # Published VM release images must never carry a baked identity.env.
+          # Runtime usb-env identity (OMNIXYS_ID) is applied at install time and
+          # is independent of this build-time embed policy.
+          grep -v "^IDENTITY_EMBED=" .release.env > .release.env.tmp || true
+          printf 'IDENTITY_EMBED=false\n' >> .release.env.tmp
+          mv .release.env.tmp .release.env
       - name: Build ISO
         run: |
           chmod +x build.sh
           ./build.sh --config .release.env --arches amd64,arm64
+      - name: Verify VM release image is identity-free
+        shell: bash
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            iso="output/omnixys-debian-13-${arch}-auto.iso"
+            # xorriso -find prints the entry (quoted) when present; nothing when absent.
+            if [ -n "$(xorriso -indev "$iso" -find /identity.env 2>/dev/null | tr -d "'[:space:]")" ]; then
+              echo "::error::Release VM ISO $iso unexpectedly contains /identity.env" >&2
+              exit 1
+            fi
+          done
+          echo "Verified: no /identity.env in release VM images"
       - name: Prepare VM release assets
         id: assets
         shell: bash

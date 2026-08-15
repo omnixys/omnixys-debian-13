@@ -227,6 +227,41 @@ debian_extract_iso_tree() {
   run_cmd chmod -R u+w "$target_dir"
 }
 
+debian_identity_embed_enabled() {
+  # IDENTITY_EMBED controls whether a local ./identity.env is baked into the
+  # output ISO. It is independent of the runtime usb-env lookup mechanism
+  # (IDENTITY_SOURCE/IDENTITY_REQUIRED/IDENTITY_DEVICE_LABEL/OMNIXYS_ID),
+  # which is untouched regardless of this value.
+  #
+  # Default is true to preserve the historic behaviour (local / production
+  # builds may embed a self-provisioning identity.env). Published VM release
+  # images force IDENTITY_EMBED=false to guarantee no identity is shipped.
+  [[ "${IDENTITY_EMBED:-true}" == "true" ]]
+}
+
+debian_iso_contains_path() {
+  # $1 = ISO path, $2 = ISO path to test (e.g. "/identity.env")
+  # xorriso -find prints the entry (quoted) when it exists and nothing when absent.
+  local iso="$1" path="$2"
+  local listing
+  listing="$(run_cmd xorriso -indev "$iso" -find "$path" 2>/dev/null || true)"
+  [[ -n "${listing//[[:space:]]\'}" ]]
+}
+
+debian_assert_no_identity_in_iso() {
+  # Release gate: when IDENTITY_EMBED=false we must guarantee the final
+  # ISO does not carry a baked identity.env, independent of whether a local
+  # ./identity.env happened to be checked out at build time.
+  [[ "$IDENTITY_EMBED" == "false" ]] || return 0
+  [[ "$DRY_RUN" == "true" ]] && return 0
+  [[ -f "$ISO_OUTPUT_PATH" ]] || return 0
+
+  if debian_iso_contains_path "$ISO_OUTPUT_PATH" "/identity.env"; then
+    die "IDENTITY_EMBED=false but /identity.env is present in final ISO: $ISO_OUTPUT_PATH"
+  fi
+  info "Release gate passed: no /identity.env baked into ISO ($ISO_OUTPUT_PATH)"
+}
+
 debian_package() {
   ISO_OUTPUT_PATH="$ROOT_DIR/output/omnixys-debian-${DEBIAN_MAJOR}-${ARCH}-auto.iso"
   local metadata_copy="$ROOT_DIR/logs/install.log"
@@ -256,8 +291,11 @@ debian_package() {
     run_cmd cp "$GENERATED_DIR/omnixys-disk-detect.sh" "$ISO_TREE_DIR/omnixys-disk-detect.sh"
     run_cmd chmod 0755 "$ISO_TREE_DIR/omnixys-disk-detect.sh"
   fi
-  if [[ -f "$ROOT_DIR/identity.env" ]]; then
+  if debian_identity_embed_enabled && [[ -f "$ROOT_DIR/identity.env" ]]; then
+    step "Embedding runtime identity into ISO (IDENTITY_EMBED=true)"
     run_cmd cp "$ROOT_DIR/identity.env" "$ISO_TREE_DIR/identity.env"
+  elif [[ -f "$ROOT_DIR/identity.env" ]]; then
+    info "Skipping identity embedding (IDENTITY_EMBED=false); /identity.env stays dynamic at install time"
   fi
 
   step "Patching boot configuration"
@@ -271,6 +309,8 @@ debian_package() {
     -update_r "$ISO_TREE_DIR" / \
     -commit \
     -end
+
+  debian_assert_no_identity_in_iso
 
   cp "$GENERATED_DIR/installer-info.txt" "$metadata_copy"
   cp "$GENERATED_DIR/installer-info.txt" "$ARTIFACTS_DIR/installer-info.txt"
