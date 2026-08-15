@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          token: ${{ secrets.OMNIXYS_TOKEN || github.token }}
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -31,4 +31,4 @@ jobs:
       - name: Run semantic-release
         run: pnpm release
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          GITHUB_TOKEN: ${{ secrets.OMNIXYS_TOKEN || github.token }}

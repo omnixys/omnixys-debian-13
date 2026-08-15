@@ -232,7 +232,7 @@ Release and nightly builds require these GitHub Actions secrets:
 - `HOSTNAME`
 - `SSH_PUBLIC_KEY`
 - `DOMAIN` (optional)
-- `RELEASE_PLEASE_TOKEN` (PAT with `contents: write`; required so the automatic release can trigger the asset build)
+- `OMNIXYS_TOKEN` (PAT with `contents: write`; required so the automatic release can trigger the asset build)
 
 These values are injected into the temporary CI config at runtime and override the corresponding profile values for release/nightly builds.
 
