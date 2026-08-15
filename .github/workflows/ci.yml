@@ -66,10 +66,12 @@ jobs:
           chmod +x tests/test-renderer-template.sh
           chmod +x tests/test-validator-rules.sh
           chmod +x tests/test-builder-remaster.sh
+          chmod +x tests/test-identity.sh
           ./tests/test-installer-debian-preseed.sh
           ./tests/test-renderer-template.sh
           ./tests/test-validator-rules.sh
           ./tests/test-builder-remaster.sh
+          ./tests/test-identity.sh
 
   test-modules:
     needs: test-core

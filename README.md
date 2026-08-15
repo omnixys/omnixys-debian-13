@@ -170,6 +170,14 @@ manually:
 ./build.sh --config configs/vm.env --arches amd64,arm64
 ```
 
+`-vm` images (and local VM builds from `configs/vm.env`) use the same `usb-env`
+identity provisioning as the production images, but with `IDENTITY_REQUIRED=false`:
+identity values are applied when present, otherwise the VM build-time defaults are
+used. To provision a VM dynamically, attach a volume/USB with the `OMNIXYS_ID`
+label containing `identity.env`, or bake `./identity.env` into the ISO at build time
+(see "Runtime Identity Override"). Network configuration stays DHCP; no
+VM-specific static IP is enforced.
+
 ## Secure Boot Status
 
 - BIOS: remaster path implemented and patched via boot config update
@@ -283,10 +291,11 @@ Safety behavior:
 
 ## Runtime Identity Override (MVP)
 
-The Debian backend can optionally override identity values at install time from an external `identity.env` file.
+The Debian backend can optionally override identity values at install time from an external `identity.env` file. The mechanism is identical for bare-metal (`configs/production.env`) and VM (`configs/vm.env`) images; only the required/optional policy differs.
 
 - `IDENTITY_SOURCE=usb-env` enables lookup of `/identity.env` on `/cdrom` or on a removable medium labeled by `IDENTITY_DEVICE_LABEL` (for example `OMNIXYS_ID`).
-- `IDENTITY_REQUIRED=true` aborts installation early when the identity file is missing.
+- `IDENTITY_REQUIRED=true` aborts installation early (non-zero exit) when the identity file is missing or unreadable. Used by the production profile.
+- `IDENTITY_REQUIRED=false` does **not** disable identity: the identity file is still consumed and overrides are applied when present. Only when it is missing does the installer continue with the build-time defaults. Used by the VM profile.
 - Supported variables in `identity.env` are:
 - `OMNIXYS_HOSTNAME`
 - `OMNIXYS_DOMAIN` (optional)
@@ -294,6 +303,13 @@ The Debian backend can optionally override identity values at install time from 
 - `OMNIXYS_USERNAME`
 - `OMNIXYS_SSH_PUBLIC_KEY` (optional)
 - `OMNIXYS_PASSWORD_HASH`
+
+Network configuration is unaffected: the installer always uses DHCP, so no static IP is enforced for bare metal or VMs.
+
+To supply identity to a VM install, either attach a volume/USB labeled with
+`IDENTITY_DEVICE_LABEL` (for example `OMNIXYS_ID`) containing `identity.env`, or
+place `./identity.env` in the repository root before building so it is baked into
+the ISO as `/identity.env`.
 
 Example:
 

@@ -326,22 +326,6 @@ TARGET="\$(readlink -f "$TARGET_DISK_BY_ID" 2>/dev/null || true)"; [ -b "\$TARGE
 EOF
 }
 
-debian_compose_identity_early_command() {
-  case "$IDENTITY_SOURCE" in
-    none)
-      echo "true"
-      ;;
-    usb-env)
-      cat <<EOF
-IDENTITY_FILE=""; IDENTITY_MOUNTED="false"; mkdir -p /var/lib/omnixys /media/omnixys-identity; if [ -r "/cdrom$IDENTITY_FILE_PATH" ]; then IDENTITY_FILE="/cdrom$IDENTITY_FILE_PATH"; elif [ -b "/dev/disk/by-label/$IDENTITY_DEVICE_LABEL" ]; then if mount -o ro "/dev/disk/by-label/$IDENTITY_DEVICE_LABEL" /media/omnixys-identity >/dev/null 2>&1; then IDENTITY_MOUNTED="true"; fi; if [ -r "/media/omnixys-identity$IDENTITY_FILE_PATH" ]; then IDENTITY_FILE="/media/omnixys-identity$IDENTITY_FILE_PATH"; fi; fi; if [ -z "\$IDENTITY_FILE" ]; then if [ "$IDENTITY_REQUIRED" = "true" ]; then echo "omnixys: required identity file not found" >/var/log/omnixys-identity.log; exit 1; fi; else cp "\$IDENTITY_FILE" /var/lib/omnixys/identity.env; . /var/lib/omnixys/identity.env; [ -n "\${OMNIXYS_HOSTNAME:-}" ] && debconf-set netcfg/get_hostname "\$OMNIXYS_HOSTNAME"; [ -n "\${OMNIXYS_DOMAIN:-}" ] && debconf-set netcfg/get_domain "\$OMNIXYS_DOMAIN"; [ -n "\${OMNIXYS_FULLNAME:-}" ] && debconf-set passwd/user-fullname "\$OMNIXYS_FULLNAME"; [ -n "\${OMNIXYS_USERNAME:-}" ] && debconf-set passwd/username "\$OMNIXYS_USERNAME"; [ -n "\${OMNIXYS_PASSWORD_HASH:-}" ] && debconf-set passwd/user-password-crypted "\$OMNIXYS_PASSWORD_HASH"; fi; if [ "\$IDENTITY_MOUNTED" = "true" ]; then umount /media/omnixys-identity >/dev/null 2>&1 || true; fi
-EOF
-      ;;
-    *)
-      die "Unsupported IDENTITY_SOURCE in renderer: $IDENTITY_SOURCE"
-      ;;
-  esac
-}
-
 debian_render_early_script() {
   local out="$GENERATED_DIR/omnixys-early.sh"
   cat >"$out" <<EOF
@@ -402,10 +386,11 @@ run_identity_step() {
   fi
 
   if [ -z "\$IDENTITY_FILE" ]; then
-    echo "identity file not found"
     if [ "\$IDENTITY_REQUIRED" = "true" ]; then
-      echo "identity is required but missing"
+      echo "omnixys: required identity file not found (IDENTITY_SOURCE=usb-env); aborting installation" >&2
+      exit 1
     fi
+    echo "omnixys: identity file not found; continuing with build-time defaults"
   else
     cp "\$IDENTITY_FILE" /var/lib/omnixys/identity.env
     . /var/lib/omnixys/identity.env

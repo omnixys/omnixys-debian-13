@@ -11,5 +11,7 @@ grep -q "Unsupported ARCH" "$VALIDATOR"
 grep -q "Invalid LOCALE" "$VALIDATOR"
 grep -q "APT_MIRROR" "$VALIDATOR"
 grep -q "Unsupported IDENTITY_SOURCE" "$VALIDATOR"
+grep -q "IDENTITY_FILE_PATH must start with /: " "$VALIDATOR"
+grep -q "IDENTITY_DEVICE_LABEL must not be empty when IDENTITY_SOURCE=usb-env" "$VALIDATOR"
 
 echo "Validator rules presence test passed"
