@@ -3,6 +3,12 @@
 All notable changes in this project will be documented in this file.
 
 
+## [1.2.0](https://github.com/omnixys/omnixys-debian-13/compare/v1.1.1...v1.2.0) (2026-08-15)
+
+### Installer
+
+* **Installer:** guarantee identity-free published VM release images ([](https://github.com/omnixys/omnixys-debian-13/commit/2c4c4ab2b06838cb0b12a01e5b511a000fb58c2b))
+
 ## [1.1.1](https://github.com/omnixys/omnixys-debian-13/compare/v1.1.0...v1.1.1) (2026-08-15)
 
 ### Identity
