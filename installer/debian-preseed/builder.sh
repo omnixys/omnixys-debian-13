@@ -21,19 +21,22 @@ debian_resolve_iso_url() {
   fi
 
   local base="https://cdimage.debian.org/debian-cd/current/${ARCH}/iso-cd/"
-  local listing
+  local listing err_file fetch_msg
+  err_file="$(mktemp)"
 
   if command -v curl >/dev/null 2>&1; then
-    listing="$(curl -fsSL "$base" || true)"
+    listing="$(curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 "$base" 2>"$err_file")" || true
   elif command -v wget >/dev/null 2>&1; then
-    listing="$(wget -q -O - "$base" || true)"
+    listing="$(wget -q --tries=5 --waitretry=3 -O - "$base" 2>"$err_file")" || true
   else
     die "Either curl or wget is required to resolve Debian ISO URL"
   fi
 
   local match
   match="$(printf '%s' "$listing" | grep -Eo "debian-[0-9.]+-${ARCH}-netinst\.iso" | sort -V | tail -n 1 || true)"
-  [[ -n "$match" ]] || die "Could not resolve Debian netinst ISO for ARCH=${ARCH}"
+  fetch_msg="$(<"$err_file")"
+  rm -f "$err_file"
+  [[ -n "$match" ]] || die "Could not resolve Debian netinst ISO for ARCH=${ARCH} (${fetch_msg:-listing fetch failed})"
   echo "$base$match"
 }
 
@@ -47,7 +50,7 @@ debian_build() {
   info "Resolved ISO URL: $ISO_URL"
   info "Resolved ISO file: $ISO_SOURCE_PATH"
 
-  if [[ -f "$ISO_SOURCE_PATH" ]]; then
+  if [[ -s "$ISO_SOURCE_PATH" ]]; then
     info "ISO already present in downloads"
     return 0
   fi
@@ -59,12 +62,17 @@ debian_build() {
 
   step "Downloading Debian ISO"
   if command -v curl >/dev/null 2>&1; then
-    if ! run_cmd curl -fL --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 --max-time 0 "$ISO_URL" -o "$ISO_SOURCE_PATH"; then
+    if ! run_cmd curl -fL --retry 8 --retry-delay 3 --retry-all-errors --connect-timeout 20 --speed-limit 1024 --speed-time 60 --max-time 0 "$ISO_URL" -o "$ISO_SOURCE_PATH"; then
+      rm -f "$ISO_SOURCE_PATH"
       warn "curl download failed, retrying with wget fallback"
-      run_cmd wget --tries=5 --waitretry=3 --timeout=20 -O "$ISO_SOURCE_PATH" "$ISO_URL"
+      run_cmd wget --tries=8 --waitretry=3 --timeout=20 -O "$ISO_SOURCE_PATH" "$ISO_URL"
     fi
   else
-    run_cmd wget --tries=5 --waitretry=3 --timeout=20 -O "$ISO_SOURCE_PATH" "$ISO_URL"
+    run_cmd wget --tries=8 --waitretry=3 --timeout=20 -O "$ISO_SOURCE_PATH" "$ISO_URL"
+  fi
+  if [[ ! -s "$ISO_SOURCE_PATH" ]]; then
+    rm -f "$ISO_SOURCE_PATH"
+    die "ISO download failed: no valid ISO file at $ISO_SOURCE_PATH"
   fi
 }
 
@@ -96,9 +104,9 @@ debian_resolve_sha_from_upstream() {
   fi
 
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$base/SHA256SUMS" -o "$sumfile" || return 1
+    curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 "$base/SHA256SUMS" -o "$sumfile" || return 1
   else
-    wget -q -O "$sumfile" "$base/SHA256SUMS" || return 1
+    wget -q --tries=5 --waitretry=3 -O "$sumfile" "$base/SHA256SUMS" || return 1
   fi
 
   # Match the exact ISO filename only (avoid suffix collisions like .torrent/.jigdo)
