@@ -3,6 +3,21 @@
 All notable changes in this project will be documented in this file.
 
 
+## [1.0.1](https://github.com/omnixys/omnixys-debian-13/compare/v1.0.0...v1.0.1) (2026-08-15)
+
+### Deps
+
+* **Deps:** add chalk ([](https://github.com/omnixys/omnixys-debian-13/commit/14d7641411f41f771c4d3617d10f00fc41c26080))
+
+### Other
+
+* **Other:** release ([](https://github.com/omnixys/omnixys-debian-13/commit/cdc62c19ad1e94c3d8946fb37616eb38973f9b9d))
+* **Other:** Update release.config.mjs ([](https://github.com/omnixys/omnixys-debian-13/commit/c493b5d6253c9cc613e8977f645deaa605254f78))
+
+### Workflow
+
+* **Workflow:** use OMNIXYS_TOKEN for semantic-release ([](https://github.com/omnixys/omnixys-debian-13/commit/42b8c322f5dda28f126d98ae9f0470a6498793d1))
+
 ## 1.0.0 (2026-08-15)
 
 ### Build
