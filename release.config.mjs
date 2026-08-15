@@ -157,12 +157,36 @@ export default {
         ],
 
         releaseBodyTemplate: `
-        # 🚀 Release v<%= nextRelease.version %>
+        # 🚀 Omnixys Debian 13 v<%= nextRelease.version %>
+
 ---
 
 ## 📦 Changes
 
 <%= nextRelease.notes %>
+
+---
+
+## 💿 Installation Images
+
+Release assets are built automatically for the following profiles:
+
+### Production / Bare Metal
+
+- amd64
+- arm64
+
+Production images are built from \`configs/production.env\`.
+
+### Virtual Machines
+
+- amd64
+- arm64
+
+VM images are built from \`configs/vm.env\`.
+
+For UTM on Apple Silicon, use the **arm64 VM image** rather than the
+arm64 Production image.
 
 ---
 
@@ -175,9 +199,9 @@ export default {
 
 ---
 
-🏢 **Organization:** Omnixys
-📦 **Service:** Authentication
-🔗 **Repository:** Repository: <%= options.repositoryUrl %>
+🏢 **Organization:** Omnixys  
+💿 **Project:** Omnixys Debian 13  
+🔗 **Repository:** <%= options.repositoryUrl %>  
 🧭 **Docs:** https://omnixys.com/docs
 `,
       },
