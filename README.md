@@ -218,11 +218,10 @@ Examples:
 
 Included workflows:
 
-- `ci.yml`: ShellCheck + dry-run + per-push/per-PR ISO artifacts
+- `ci.yml`: ShellCheck + dry-run + per-push/per-PR ISO artifacts; commitlint validates Conventional Commit messages
 - `boot-tests.yml`: manual build + BIOS/UEFI smoke tests (matrix-ready backend structure)
-- `release-gate.yml`: validates release-please PRs (tests + full ISO build) before merge
-- `release-please.yml`: automatic SemVer release PRs and changelog updates from Conventional Commits
-- `release.yml`: published release asset builder (`.iso`, `.sha256`, `.sha512`, `build-info.json`, `sbom.cdx.json`)
+- `semantic-release.yml`: automatic SemVer releases directly on `main` pushes (tag + GitHub Release + changelog)
+- `release.yml`: release asset builder (`.iso`, `.sha256`, `.sha512`, `build-info.json`, `sbom.cdx.json`) for production and `-vm` images
 - `nightly.yml`: daily nightly ISO artifacts and nightly pre-release updates
 
 Release and nightly builds require these GitHub Actions secrets:
@@ -233,22 +232,27 @@ Release and nightly builds require these GitHub Actions secrets:
 - `HOSTNAME`
 - `SSH_PUBLIC_KEY`
 - `DOMAIN` (optional)
+- `RELEASE_PLEASE_TOKEN` (PAT with `contents: write`; required so the automatic release can trigger the asset build)
 
 These values are injected into the temporary CI config at runtime and override the corresponding profile values for release/nightly builds.
 
 ## Download Channels
 
-- Stable Releases: GitHub Releases assets
+- Stable Releases: GitHub Releases assets (production and `-vm` images)
 - CI Artifacts: per push and pull request workflow artifacts
 - Nightly: daily pre-release assets and nightly workflow artifacts
 
 ## Conventional Commits and SemVer
 
-Versioning is automated with release-please and Conventional Commits.
+Every push to `main` is automatically released with semantic-release:
+
+1. `semantic-release.yml` determines the next version from Conventional Commits and creates the tag + GitHub Release.
+2. `release.yml` builds the production and `-vm` ISOs and attaches all assets to the release.
 
 - `fix:` -> patch bump
 - `feat:` -> minor bump
 - `BREAKING CHANGE:` or `!` -> major bump
+- No `fix:`/`feat:` commits -> no new release
 
 Example commit types:
 
@@ -256,10 +260,7 @@ Example commit types:
 - `feat(workflow): add nightly release channel`
 - `feat!: change backend API`
 
-Release process note:
-
-- Release PRs created by release-please should pass `release-gate.yml` before merge.
-- Merge only after the gate is green, then release publishing workflows can proceed.
+The release commit is created with `[skip ci]` and does not trigger the pipeline again. Commit messages are enforced by commitlint.
 
 ## Safety Warning
 

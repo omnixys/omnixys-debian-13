@@ -5,6 +5,33 @@ on:
   pull_request:
 
 jobs:
+  commitlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Lint commit messages
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base="$(git merge-base origin/main HEAD)"
+          else
+            base="${{ github.event.before }}"
+          fi
+          if [[ "${base}" =~ ^0+$ ]]; then
+            base="$(git rev-list --max-parents=0 HEAD | head -1)"
+          fi
+          pnpm exec commitlint --from "${base}" --to HEAD
+
   test-core:
     runs-on: ubuntu-latest
     steps:

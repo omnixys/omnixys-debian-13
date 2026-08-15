@@ -13,3 +13,4 @@ Thumbs.db
 *.swp
 *.swo
 identity.env
+node_modules
