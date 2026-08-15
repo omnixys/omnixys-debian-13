@@ -179,3 +179,115 @@ jobs:
         with:
           name: release-changelog-${{ steps.version.outputs.version }}
           path: CHANGELOG.md.sha256
+
+  release-assets-vm:
+    needs: release-assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tooling
+        run: sudo apt-get update; sudo apt-get install -y xorriso wget curl openssl jq
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            tag="${GITHUB_REF_NAME}"
+          elif [[ -n "${{ inputs.tag }}" ]]; then
+            tag="${{ inputs.tag }}"
+          else
+            echo "Manual run requires inputs.tag" >&2
+            exit 1
+          fi
+          version="${tag#v}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+      - name: Prepare VM release config
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp configs/vm.env .release.env
+          sed -i "s/^INSTALLER_VERSION=.*/INSTALLER_VERSION=${{ steps.version.outputs.version }}/" .release.env
+      - name: Build ISO
+        run: |
+          chmod +x build.sh
+          ./build.sh --config .release.env --arches amd64,arm64
+      - name: Prepare VM release assets
+        id: assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release
+          for arch in amd64 arm64; do
+            base_name="omnixys-debian-13-${arch}-${{ steps.version.outputs.version }}-vm"
+            iso_path="artifacts/release/${base_name}.iso"
+            cp "output/omnixys-debian-13-${arch}-auto.iso" "$iso_path"
+            sha256sum "$iso_path" > "${iso_path}.sha256"
+            sha512sum "$iso_path" > "${iso_path}.sha512"
+
+            jq -n \
+              --arg version "${{ steps.version.outputs.version }}" \
+              --arg gitCommit "${{ github.sha }}" \
+              --arg backend "debian-preseed" \
+              --arg distro "debian-13" \
+              --arg profile "vm" \
+              --arg arch "$arch" \
+              --arg buildDate "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+              --arg frameworkVersion "${{ steps.version.outputs.version }}" \
+              '{
+                version: $version,
+                gitCommit: $gitCommit,
+                backend: $backend,
+                distro: $distro,
+                profile: $profile,
+                arch: $arch,
+                buildDate: $buildDate,
+                frameworkVersion: $frameworkVersion
+              }' > "artifacts/release/${base_name}.build-info.json"
+
+            jq -n \
+              --arg bomFormat "CycloneDX" \
+              --arg specVersion "1.5" \
+              --arg serialNumber "urn:uuid:${{ github.run_id }}-${{ github.run_attempt }}-${arch}" \
+              --arg timestamp "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+              --arg name "$base_name" \
+              --arg version "${{ steps.version.outputs.version }}" \
+              '{
+                bomFormat: $bomFormat,
+                specVersion: $specVersion,
+                serialNumber: $serialNumber,
+                version: 1,
+                metadata: {
+                  timestamp: $timestamp,
+                  component: {
+                    type: "file",
+                    name: $name,
+                    version: $version
+                  }
+                },
+                components: [
+                  {
+                    type: "application",
+                    name: "omnixys-installer-framework",
+                    version: $version
+                  }
+                ]
+              }' > "artifacts/release/${base_name}.sbom.cdx.json"
+          done
+
+          echo "glob=artifacts/release/*" >> "$GITHUB_OUTPUT"
+      - name: Upload VM release workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-debian-preseed-vm-${{ steps.version.outputs.version }}
+          path: ${{ steps.assets.outputs.glob }}
+          retention-days: 30
+      - name: Publish GitHub release assets
+        if: github.event_name == 'push' || inputs.tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          files: ${{ steps.assets.outputs.glob }}
+          fail_on_unmatched_files: true
+          append_body: false

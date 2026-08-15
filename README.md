@@ -134,6 +134,42 @@ Production deployment guidance:
 
 - `docs/production-hardening.md`
 
+## VM Installs (UTM / ARM64)
+
+For UTM/ARM64 VM installations always use `configs/vm.env`:
+
+```bash
+./build.sh --config configs/vm.env --arches arm64
+```
+
+`configs/vm.env` intentionally sets `INSTALL_FIRMWARE=false` because the UTM VM
+uses VirtIO/vmnet virtual devices and does not require additional proprietary
+firmware packages (`firmware-linux`, `firmware-misc-nonfree`).
+
+The regular `config.env` is intended for bare-metal systems such as the
+OptiPlex and can contain different settings, in particular
+`INSTALL_FIRMWARE=true`, where proprietary firmware is needed for real
+hardware (GPU, Wi-Fi, NICs, ...).
+
+### GitHub Release Assets
+
+GitHub release ISOs named `omnixys-debian-13-<arch>-<version>.iso` are
+production/bare-metal images built from `configs/production.env`
+(`INSTALL_FIRMWARE=true`, `IDENTITY_REQUIRED=true`) and are **not** suitable
+for UTM/ARM64 VM installations.
+
+Since the release pipeline also publishes dedicated VM images:
+`omnixys-debian-13-<arch>-<version>-vm.iso`. These are built exclusively from
+`configs/vm.env` (no production secrets, no identity-USB requirement,
+`INSTALL_FIRMWARE=false`) and are marked with `"profile": "vm"` in their
+`.build-info.json`, so they can be distinguished machine-readably from the
+production artifacts. Use the `-vm` image for UTM/ARM64 VM installs, or build
+manually:
+
+```bash
+./build.sh --config configs/vm.env --arches amd64,arm64
+```
+
 ## Secure Boot Status
 
 - BIOS: remaster path implemented and patched via boot config update
