@@ -291,4 +291,143 @@ grep -qF 'netcfg/get_hostname omnixys-embedded-03' "$DEBCONF_LOG"
 grep -q 'identity device not found' "$SANDBOX/var/log/installer/omnixys-early.log"
 grep -q 'embedded identity selected' "$SANDBOX/var/log/installer/omnixys-early.log"
 
+# --- Case 7: FAT32 USB medium mounted successfully via auto-detect
+# --- -> USB identity loaded, hostname omnixys-03 applied
+export IDENTITY_REQUIRED=true
+debian_render_early_script
+sandboxize "$EARLY" "$SANDBOX/case7-early.sh"
+reset_sandbox
+mkdir -p "$SANDBOX/dev/disk/by-label" "$SANDBOX/media/omnixys-identity"
+touch "$SANDBOX/dev/disk/by-label/OMNIXYS_ID"
+cat >"$SANDBOX/media/omnixys-identity/identity.env" <<'EOF'
+OMNIXYS_HOSTNAME=omnixys-03
+OMNIXYS_DOMAIN=usb.lab
+OMNIXYS_SSH_PUBLIC_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA case7@omnixys"
+OMNIXYS_PASSWORD_HASH='$6$case7$secret$hash'
+EOF
+cat >"$SANDBOX/bin/mount" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod +x "$SANDBOX/bin/mount"
+run_early "$SANDBOX/case7-early.sh"
+grep -qF 'netcfg/get_hostname omnixys-03' "$DEBCONF_LOG"
+grep -q 'identity device mount succeeded' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'USB identity selected' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'hostname override applied: omnixys-03' "$SANDBOX/var/log/installer/omnixys-early.log"
+
+# --- Case 8: auto-detect mount fails, -t vfat fallback succeeds
+# --- -> exact error logged, USB identity loaded, hostname omnixys-03 applied
+export IDENTITY_REQUIRED=true
+debian_render_early_script
+sandboxize "$EARLY" "$SANDBOX/case8-early.sh"
+reset_sandbox
+mkdir -p "$SANDBOX/dev/disk/by-label" "$SANDBOX/media/omnixys-identity"
+touch "$SANDBOX/dev/disk/by-label/OMNIXYS_ID"
+cat >"$SANDBOX/media/omnixys-identity/identity.env" <<'EOF'
+OMNIXYS_HOSTNAME=omnixys-03
+OMNIXYS_DOMAIN=usb.lab
+OMNIXYS_SSH_PUBLIC_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA case8@omnixys"
+OMNIXYS_PASSWORD_HASH='$6$case8$secret$hash'
+EOF
+cat >"$SANDBOX/bin/mount" <<'EOF'
+#!/bin/sh
+case " $* " in
+  *"-t vfat"*) exit 0 ;;
+esac
+echo "mount: unknown filesystem type 'vfat'" >&2
+exit 1
+EOF
+chmod +x "$SANDBOX/bin/mount"
+run_early "$SANDBOX/case8-early.sh"
+grep -qF 'netcfg/get_hostname omnixys-03' "$DEBCONF_LOG"
+grep -qF "identity device mount (auto) failed: mount: unknown filesystem type 'vfat'" "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'identity device mounted via -t vfat' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'hostname override applied: omnixys-03' "$SANDBOX/var/log/installer/omnixys-early.log"
+
+# --- Case 9: both auto and -t vfat mounts fail, embedded identity present
+# --- -> exact mount errors persisted, fallback to embedded identity (priority 2)
+export IDENTITY_REQUIRED=true
+debian_render_early_script
+sandboxize "$EARLY" "$SANDBOX/case9-early.sh"
+reset_sandbox
+mkdir -p "$SANDBOX/dev/disk/by-label" "$SANDBOX/media/omnixys-identity" "$SANDBOX/cdrom"
+touch "$SANDBOX/dev/disk/by-label/OMNIXYS_ID"
+printf 'OMNIXYS_HOSTNAME=stale-usb-09\n' >"$SANDBOX/media/omnixys-identity/identity.env"
+printf 'OMNIXYS_HOSTNAME=omnixys-embedded-09\n' >"$SANDBOX/cdrom/identity.env"
+cat >"$SANDBOX/bin/mount" <<'EOF'
+#!/bin/sh
+echo "mount: unknown filesystem type 'vfat'" >&2
+exit 1
+EOF
+chmod +x "$SANDBOX/bin/mount"
+run_early "$SANDBOX/case9-early.sh"
+grep -qF 'netcfg/get_hostname omnixys-embedded-09' "$DEBCONF_LOG"
+grep -qF "identity device mount (auto) failed: mount: unknown filesystem type 'vfat'" "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -qF "identity device mount (-t vfat) failed: mount: unknown filesystem type 'vfat'" "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'identity device mount failed' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'embedded identity selected' "$SANDBOX/var/log/installer/omnixys-early.log"
+if grep -qF 'stale-usb-09' "$DEBCONF_LOG"; then
+  echo "case9: stale USB identity must not be applied when mount fails" >&2
+  exit 1
+fi
+
+# --- Case 9b: both mounts fail, identity not required, no embedded identity
+# --- -> continues with build-time defaults, exact error persisted
+export IDENTITY_REQUIRED=false
+debian_render_early_script
+sandboxize "$EARLY" "$SANDBOX/case9b-early.sh"
+reset_sandbox
+mkdir -p "$SANDBOX/dev/disk/by-label" "$SANDBOX/media/omnixys-identity"
+touch "$SANDBOX/dev/disk/by-label/OMNIXYS_ID"
+cat >"$SANDBOX/bin/mount" <<'EOF'
+#!/bin/sh
+echo "mount: unknown filesystem type 'vfat'" >&2
+exit 1
+EOF
+chmod +x "$SANDBOX/bin/mount"
+run_early "$SANDBOX/case9b-early.sh"
+grep -q 'continuing with build-time defaults' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -qF "identity device mount (-t vfat) failed after module load: mount: unknown filesystem type 'vfat'" "$SANDBOX/var/log/installer/omnixys-early.log"
+
+# --- Case 10: auto + vfat fail, modprobe loads vfat module, retry succeeds
+# --- -> USB identity loaded, hostname omnixys-03 applied
+export IDENTITY_REQUIRED=true
+debian_render_early_script
+sandboxize "$EARLY" "$SANDBOX/case10-early.sh"
+reset_sandbox
+mkdir -p "$SANDBOX/dev/disk/by-label" "$SANDBOX/media/omnixys-identity"
+touch "$SANDBOX/dev/disk/by-label/OMNIXYS_ID"
+cat >"$SANDBOX/media/omnixys-identity/identity.env" <<'EOF'
+OMNIXYS_HOSTNAME=omnixys-03
+OMNIXYS_DOMAIN=usb.lab
+OMNIXYS_SSH_PUBLIC_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA case10@omnixys"
+OMNIXYS_PASSWORD_HASH='$6$case10$secret$hash'
+EOF
+cat >"$SANDBOX/bin/modprobe" <<'EOF'
+#!/bin/sh
+[ "$1" = "vfat" ] || exit 1
+touch "$MODPROBE_MARKER"
+exit 0
+EOF
+chmod +x "$SANDBOX/bin/modprobe"
+cat >"$SANDBOX/bin/mount" <<'EOF'
+#!/bin/sh
+case " $* " in
+  *"-t vfat"*)
+    [ -e "$MODPROBE_MARKER" ] && exit 0
+    ;;
+esac
+echo "mount: unknown filesystem type 'vfat'" >&2
+exit 1
+EOF
+chmod +x "$SANDBOX/bin/mount"
+export MODPROBE_MARKER="$SANDBOX/modprobe.called"
+run_early "$SANDBOX/case10-early.sh"
+unset MODPROBE_MARKER
+grep -qF 'netcfg/get_hostname omnixys-03' "$DEBCONF_LOG"
+grep -q 'vfat kernel module loaded via modprobe' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'identity device mounted via -t vfat after module load' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'hostname override applied: omnixys-03' "$SANDBOX/var/log/installer/omnixys-early.log"
+
 echo "Identity mechanism tests passed"

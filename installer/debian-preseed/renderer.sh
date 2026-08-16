@@ -422,6 +422,44 @@ detect_identity_device() {
   return 1
 }
 
+# Mount the identity device read-only. In the early d-i initramfs context the
+# vfat/fat kernel module is often not loaded yet, so an auto-detect mount can
+# fail even though the device is present. Fall back to an explicit -t vfat
+# attempt and try to load the module before giving up. Only tools shipped in
+# the installer initramfs are used (mount, lsmod, modprobe, grep).
+mount_identity_device() {
+  local err
+
+  if err="\$(mount -o ro "\$IDENTITY_DEVICE" /media/omnixys-identity 2>&1)"; then
+    return 0
+  fi
+  log_info "identity device mount (auto) failed: \$err"
+
+  if err="\$(mount -t vfat -o ro "\$IDENTITY_DEVICE" /media/omnixys-identity 2>&1)"; then
+    log_info "identity device mounted via -t vfat"
+    return 0
+  fi
+  log_info "identity device mount (-t vfat) failed: \$err"
+
+  if command -v lsmod >/dev/null 2>&1 && lsmod 2>/dev/null | grep -qE '^(vfat|fat) '; then
+    log_info "vfat/fat kernel module already loaded"
+  elif command -v modprobe >/dev/null 2>&1; then
+    if modprobe vfat 2>>/var/log/installer/omnixys-early.log; then
+      log_info "vfat kernel module loaded via modprobe"
+    else
+      log_info "modprobe vfat failed"
+    fi
+  fi
+
+  if err="\$(mount -t vfat -o ro "\$IDENTITY_DEVICE" /media/omnixys-identity 2>&1)"; then
+    log_info "identity device mounted via -t vfat after module load"
+    return 0
+  fi
+  log_info "identity device mount (-t vfat) failed after module load: \$err"
+
+  return 1
+}
+
 run_identity_step() {
   [ "\$IDENTITY_SOURCE" = "usb-env" ] || return 0
 
@@ -433,7 +471,7 @@ run_identity_step() {
   IDENTITY_DEVICE=""
   detect_identity_device || true
   if [ -n "\$IDENTITY_DEVICE" ]; then
-    if mount -o ro "\$IDENTITY_DEVICE" /media/omnixys-identity >/dev/null 2>&1; then
+    if mount_identity_device; then
       IDENTITY_MOUNTED="true"
       log_info "identity device mount succeeded: \$IDENTITY_DEVICE"
       if [ -r "/media/omnixys-identity\$IDENTITY_FILE_PATH" ]; then
