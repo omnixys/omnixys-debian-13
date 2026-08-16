@@ -58,10 +58,13 @@ debian_validate_partition_mode() {
 }
 
 debian_validate_password() {
-  [[ ${#PASSWORD} -ge 12 ]] || die "PASSWORD must be at least 12 characters"
-  [[ "$PASSWORD" =~ [A-Z] ]] || die "PASSWORD must include an uppercase letter"
-  [[ "$PASSWORD" =~ [a-z] ]] || die "PASSWORD must include a lowercase letter"
-  [[ "$PASSWORD" =~ [0-9] ]] || die "PASSWORD must include a number"
+  # Strength checks intentionally disabled to allow weak/lab passwords
+  # such as "asd". PASSWORD is still required via debian_require_var.
+  #[[ ${#PASSWORD} -ge 12 ]] || die "PASSWORD must be at least 12 characters"
+  #[[ "$PASSWORD" =~ [A-Z] ]] || die "PASSWORD must include an uppercase letter"
+  #[[ "$PASSWORD" =~ [a-z] ]] || die "PASSWORD must include a lowercase letter"
+  #[[ "$PASSWORD" =~ [0-9] ]] || die "PASSWORD must include a number"
+  :
 }
 
 debian_validate_mirror() {
