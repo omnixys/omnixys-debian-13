@@ -1,6 +1,6 @@
 {
   "name": "omnixys-debian-13",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "type": "module",
   "description": "Omnixys Debian 13 installer framework",
