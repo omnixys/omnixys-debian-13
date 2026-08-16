@@ -231,9 +231,8 @@ Included workflows:
 - `boot-tests.yml`: manual build + BIOS/UEFI smoke tests (matrix-ready backend structure)
 - `semantic-release.yml`: automatic SemVer releases directly on `main` pushes (tag + GitHub Release + changelog)
 - `release.yml`: release asset builder (`.iso`, `.sha256`, `.sha512`, `build-info.json`, `sbom.cdx.json`) for production and `-vm` images
-- `nightly.yml`: daily nightly ISO artifacts and nightly pre-release updates
 
-Release and nightly builds require these GitHub Actions secrets:
+Release builds require these GitHub Actions secrets:
 
 - `USERNAME`
 - `PASSWORD`
@@ -243,13 +242,12 @@ Release and nightly builds require these GitHub Actions secrets:
 - `DOMAIN` (optional)
 - `OMNIXYS_TOKEN` (PAT with `contents: write`; required so the automatic release can trigger the asset build)
 
-These values are injected into the temporary CI config at runtime and override the corresponding profile values for release/nightly builds.
+These values are injected into the temporary CI config at runtime and override the corresponding profile values for release builds.
 
 ## Download Channels
 
 - Stable Releases: GitHub Releases assets (production and `-vm` images)
 - CI Artifacts: per push and pull request workflow artifacts
-- Nightly: daily pre-release assets and nightly workflow artifacts
 
 ## Conventional Commits and SemVer
 
@@ -266,7 +264,7 @@ Every push to `main` is automatically released with semantic-release:
 Example commit types:
 
 - `fix(installer): handle checksum edge case`
-- `feat(workflow): add nightly release channel`
+- `feat(workflow): add release asset pipeline`
 - `feat!: change backend API`
 
 The release commit is created with `[skip ci]` and does not trigger the pipeline again. Commit messages are enforced by commitlint.
