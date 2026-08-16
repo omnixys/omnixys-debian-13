@@ -3,6 +3,20 @@
 All notable changes in this project will be documented in this file.
 
 
+## [1.3.0](https://github.com/omnixys/omnixys-debian-13/compare/v1.2.1...v1.3.0) (2026-08-16)
+
+### Identity
+
+* **Identity:** prioritize USB identity and persist early diagnostics ([](https://github.com/omnixys/omnixys-debian-13/commit/c228b2ad6163ce285371adc8bae890f6990e3687))
+
+### Other
+
+* **Other:** Merge branch 'main' of https://github.com/omnixys/omnixys-debian-13 ([](https://github.com/omnixys/omnixys-debian-13/commit/4f439423ef52e693089eb5b9846cf3c3aa54e34a))
+
+### Validator
+
+* **Validator:** disable password strength validation ([](https://github.com/omnixys/omnixys-debian-13/commit/a8f8835531e9d3ec1873ed65b2c37bd5871bc776))
+
 ## [1.2.1](https://github.com/omnixys/omnixys-debian-13/compare/v1.2.0...v1.2.1) (2026-08-15)
 
 ### Vm
