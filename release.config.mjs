@@ -159,6 +159,29 @@ export default {
         releaseBodyTemplate: `
         # 🚀 Omnixys Debian 13 v<%= nextRelease.version %>
 
+
+---
+
+## 📦 Changes
+
+<%= nextRelease.notes %>
+
+---
+
+## 🔎 Release Details
+
+- **Git Tag:** <%= nextRelease.gitTag %>
+- **Branch:** <%= branch.name %>
+- **Previous Version:** <%= lastRelease ? lastRelease.version : 'N/A' %>
+- **Commit:** <%= nextRelease.gitHead.substring(0, 7) %>
+
+---
+
+🏢 **Organization:** Omnixys  
+💿 **Project:** Omnixys Debian 13  
+🔗 **Repository:** <%= options.repositoryUrl %>  
+🧭 **Docs:** https://omnixys.com/docs
+
 ---
 
 ## 💿 Installation Images
@@ -208,27 +231,6 @@ Verify an image with:
 sha256sum -c <image>.iso.sha256
 \`\`\`
 
----
-
-## 📦 Changes
-
-<%= nextRelease.notes %>
-
----
-
-## 🔎 Release Details
-
-- **Git Tag:** <%= nextRelease.gitTag %>
-- **Branch:** <%= branch.name %>
-- **Previous Version:** <%= lastRelease ? lastRelease.version : 'N/A' %>
-- **Commit:** <%= nextRelease.gitHead.substring(0, 7) %>
-
----
-
-🏢 **Organization:** Omnixys  
-💿 **Project:** Omnixys Debian 13  
-🔗 **Repository:** <%= options.repositoryUrl %>  
-🧭 **Docs:** https://omnixys.com/docs
 `,
       },
     ],
