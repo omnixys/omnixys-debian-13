@@ -125,14 +125,17 @@ sandboxize() {
     -e "s|/media/omnixys-identity|$SANDBOX/media/omnixys-identity|g" \
     -e "s|/var/log|$SANDBOX/var/log|g" \
     -e "s|/dev/disk/by-label|$SANDBOX/dev/disk/by-label|g" \
+    -e "s|IDENTITY_DEVICE_RETRIES=5|IDENTITY_DEVICE_RETRIES=1|g" \
+    -e "s|IDENTITY_DEVICE_RETRY_DELAY=1|IDENTITY_DEVICE_RETRY_DELAY=0|g" \
     "$src" >"$dst"
   chmod +x "$dst"
 }
 
 reset_sandbox() {
   # shellcheck disable=SC2115
-  rm -rf "$SANDBOX/cdrom" "$SANDBOX/var/lib" "$SANDBOX/media"
+  rm -rf "$SANDBOX/cdrom" "$SANDBOX/var/lib" "$SANDBOX/media" "$SANDBOX/dev" "$SANDBOX/var/log/installer"
   : >"$DEBCONF_LOG"
+  : >"$SANDBOX/var/log/omnixys-early.log"
 }
 
 run_early() {
@@ -179,6 +182,8 @@ if [ "$rc" -ne 1 ]; then
 fi
 [[ ! -s "$DEBCONF_LOG" ]]
 grep -q 'required identity file not found (IDENTITY_SOURCE=usb-env); aborting installation' "$SANDBOX/var/log/omnixys-early.log"
+grep -q 'required identity file not found (IDENTITY_SOURCE=usb-env); aborting installation' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'identity device not found' "$SANDBOX/var/log/installer/omnixys-early.log"
 
 # --- Case 3: usb-env + IDENTITY_REQUIRED=false + identity missing
 # --- -> continues with build-time defaults (exit 0), no overrides applied
@@ -189,5 +194,101 @@ reset_sandbox
 run_early "$SANDBOX/case3-early.sh"
 [[ ! -s "$DEBCONF_LOG" ]]
 grep -q 'continuing with build-time defaults' "$SANDBOX/var/log/omnixys-early.log"
+grep -q 'identity file not found; continuing with build-time defaults' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'identity device not found' "$SANDBOX/var/log/installer/omnixys-early.log"
+
+# --- Case 4: USB OMNIXYS_ID present + embedded identity present
+# --- -> USB must win (priority 1), embedded must NOT be selected
+export IDENTITY_REQUIRED=true
+debian_render_early_script
+sandboxize "$EARLY" "$SANDBOX/case4-early.sh"
+reset_sandbox
+mkdir -p "$SANDBOX/dev/disk/by-label" "$SANDBOX/media/omnixys-identity" "$SANDBOX/cdrom"
+touch "$SANDBOX/dev/disk/by-label/OMNIXYS_ID"
+cat >"$SANDBOX/media/omnixys-identity/identity.env" <<'EOF'
+OMNIXYS_HOSTNAME=omnixys-usb-01
+OMNIXYS_DOMAIN=usb.lab
+OMNIXYS_SSH_PUBLIC_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA case4-secret-ssh-key@omnixys"
+OMNIXYS_PASSWORD_HASH='$6$case4$secret$hash'
+EOF
+cat >"$SANDBOX/cdrom/identity.env" <<'EOF'
+OMNIXYS_HOSTNAME=omnixys-embedded-01
+OMNIXYS_PASSWORD_HASH='$6$embedded$secret$hash'
+EOF
+cat >"$SANDBOX/bin/mount" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod +x "$SANDBOX/bin/mount"
+run_early "$SANDBOX/case4-early.sh"
+grep -qF 'netcfg/get_hostname omnixys-usb-01' "$DEBCONF_LOG"
+if grep -qF 'omnixys-embedded-01' "$DEBCONF_LOG"; then
+  echo "case4: embedded identity must NOT win over USB" >&2
+  exit 1
+fi
+grep -q 'identity source selected: usb-env' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'identity device detected: OMNIXYS_ID' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'identity device mount succeeded' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'identity.env found on mounted device' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'USB identity selected' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'hostname override applied: omnixys-usb-01' "$SANDBOX/var/log/installer/omnixys-early.log"
+if grep -q 'embedded identity selected' "$SANDBOX/var/log/installer/omnixys-early.log"; then
+  echo "case4: embedded must not be selected when USB wins" >&2
+  exit 1
+fi
+# no secrets in either early log
+if grep -qF '$6$case4$secret$hash' "$SANDBOX/var/log/installer/omnixys-early.log"; then
+  echo "case4: password hash leaked into persistent early log" >&2
+  exit 1
+fi
+if grep -qF 'case4-secret-ssh-key' "$SANDBOX/var/log/installer/omnixys-early.log"; then
+  echo "case4: ssh key leaked into persistent early log" >&2
+  exit 1
+fi
+if grep -qF '$6$case4$secret$hash' "$SANDBOX/var/log/omnixys-early.log"; then
+  echo "case4: password hash leaked into ephemeral early log" >&2
+  exit 1
+fi
+
+# --- Case 5: USB device present but mount fails
+# --- -> correct logging + fallback to embedded identity (priority 2)
+export IDENTITY_REQUIRED=true
+debian_render_early_script
+sandboxize "$EARLY" "$SANDBOX/case5-early.sh"
+reset_sandbox
+mkdir -p "$SANDBOX/dev/disk/by-label" "$SANDBOX/media/omnixys-identity" "$SANDBOX/cdrom"
+touch "$SANDBOX/dev/disk/by-label/OMNIXYS_ID"
+printf 'OMNIXYS_HOSTNAME=stale-usb\n' >"$SANDBOX/media/omnixys-identity/identity.env"
+printf 'OMNIXYS_HOSTNAME=omnixys-embedded-02\n' >"$SANDBOX/cdrom/identity.env"
+cat >"$SANDBOX/bin/mount" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+chmod +x "$SANDBOX/bin/mount"
+run_early "$SANDBOX/case5-early.sh"
+grep -qF 'netcfg/get_hostname omnixys-embedded-02' "$DEBCONF_LOG"
+grep -q 'identity device mount failed' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'embedded identity selected' "$SANDBOX/var/log/installer/omnixys-early.log"
+if grep -q 'USB identity selected' "$SANDBOX/var/log/installer/omnixys-early.log"; then
+  echo "case5: USB must not be selected when mount fails" >&2
+  exit 1
+fi
+if grep -qF 'stale-usb' "$DEBCONF_LOG"; then
+  echo "case5: stale USB identity must not be applied when mount fails" >&2
+  exit 1
+fi
+
+# --- Case 6: USB absent + embedded identity present
+# --- -> embedded identity wins (priority 2)
+export IDENTITY_REQUIRED=true
+debian_render_early_script
+sandboxize "$EARLY" "$SANDBOX/case6-early.sh"
+reset_sandbox
+mkdir -p "$SANDBOX/cdrom"
+printf 'OMNIXYS_HOSTNAME=omnixys-embedded-03\n' >"$SANDBOX/cdrom/identity.env"
+run_early "$SANDBOX/case6-early.sh"
+grep -qF 'netcfg/get_hostname omnixys-embedded-03' "$DEBCONF_LOG"
+grep -q 'identity device not found' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'embedded identity selected' "$SANDBOX/var/log/installer/omnixys-early.log"
 
 echo "Identity mechanism tests passed"

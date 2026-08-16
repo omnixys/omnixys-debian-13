@@ -339,6 +339,15 @@ IDENTITY_SOURCE="${IDENTITY_SOURCE:-none}"
 IDENTITY_REQUIRED="${IDENTITY_REQUIRED:-false}"
 IDENTITY_FILE_PATH="${IDENTITY_FILE_PATH:-/identity.env}"
 IDENTITY_DEVICE_LABEL="${IDENTITY_DEVICE_LABEL:-OMNIXYS-ID}"
+IDENTITY_DEVICE_RETRIES=5
+IDENTITY_DEVICE_RETRY_DELAY=1
+
+mkdir -p /var/log/installer
+
+log_info() {
+  echo "omnixys: \$*"
+  echo "omnixys: \$*" >>/var/log/installer/omnixys-early.log 2>/dev/null || true
+}
 
 run_disk_step() {
   case "\$TARGET_DISK_MODE" in
@@ -367,38 +376,99 @@ run_disk_step() {
   esac
 }
 
+detect_identity_device() {
+  IDENTITY_DEVICE=""
+  BY_LABEL="/dev/disk/by-label/\$IDENTITY_DEVICE_LABEL"
+  n=0
+  while [ "\$n" -lt "\$IDENTITY_DEVICE_RETRIES" ]; do
+    if [ -e "\$BY_LABEL" ]; then
+      IDENTITY_DEVICE="\$BY_LABEL"
+      log_info "identity device detected: \$IDENTITY_DEVICE_LABEL"
+      return 0
+    fi
+    n=\$((n + 1))
+    [ "\$n" -lt "\$IDENTITY_DEVICE_RETRIES" ] && sleep "\$IDENTITY_DEVICE_RETRY_DELAY"
+  done
+
+  log_info "identity device not detected via /dev/disk/by-label/\$IDENTITY_DEVICE_LABEL; trying label resolver fallback"
+  if command -v findfs >/dev/null 2>&1; then
+    RES="\$(findfs "LABEL=\$IDENTITY_DEVICE_LABEL" 2>/dev/null || true)"
+    if [ -n "\$RES" ]; then
+      IDENTITY_DEVICE="\$RES"
+      log_info "identity device resolved via findfs"
+      return 0
+    fi
+  fi
+  if [ -z "\$IDENTITY_DEVICE" ] && command -v blkid >/dev/null 2>&1; then
+    RES="\$(blkid -L "\$IDENTITY_DEVICE_LABEL" 2>/dev/null || true)"
+    if [ -n "\$RES" ]; then
+      IDENTITY_DEVICE="\$RES"
+      log_info "identity device resolved via blkid -L"
+      return 0
+    fi
+  fi
+  if [ -z "\$IDENTITY_DEVICE" ] && command -v blkid >/dev/null 2>&1; then
+    for cand in /dev/sd[a-z][0-9]* /dev/vd[a-z][0-9]* /dev/xvd[a-z][0-9]* /dev/nvme[0-9]*n[0-9]*p[0-9]* /dev/mmcblk[0-9]*p[0-9]*; do
+      [ -b "\$cand" ] || continue
+      if blkid "\$cand" 2>/dev/null | grep -qF "LABEL=\"\$IDENTITY_DEVICE_LABEL\""; then
+        IDENTITY_DEVICE="\$cand"
+        log_info "identity device resolved via blkid scan"
+        return 0
+      fi
+    done
+  fi
+
+  log_info "identity device not found"
+  return 1
+}
+
 run_identity_step() {
   [ "\$IDENTITY_SOURCE" = "usb-env" ] || return 0
 
+  log_info "identity source selected: usb-env"
   IDENTITY_FILE=""
   IDENTITY_MOUNTED="false"
   mkdir -p /var/lib/omnixys /media/omnixys-identity
 
-  if [ -r "/cdrom\$IDENTITY_FILE_PATH" ]; then
-    IDENTITY_FILE="/cdrom\$IDENTITY_FILE_PATH"
-  elif [ -b "/dev/disk/by-label/\$IDENTITY_DEVICE_LABEL" ]; then
-    if mount -o ro "/dev/disk/by-label/\$IDENTITY_DEVICE_LABEL" /media/omnixys-identity >/dev/null 2>&1; then
+  IDENTITY_DEVICE=""
+  detect_identity_device || true
+  if [ -n "\$IDENTITY_DEVICE" ]; then
+    if mount -o ro "\$IDENTITY_DEVICE" /media/omnixys-identity >/dev/null 2>&1; then
       IDENTITY_MOUNTED="true"
+      log_info "identity device mount succeeded: \$IDENTITY_DEVICE"
+      if [ -r "/media/omnixys-identity\$IDENTITY_FILE_PATH" ]; then
+        IDENTITY_FILE="/media/omnixys-identity\$IDENTITY_FILE_PATH"
+        log_info "identity.env found on mounted device"
+        log_info "USB identity selected"
+      else
+        log_info "USB identity.env not found on mounted device"
+      fi
+    else
+      log_info "identity device mount failed: \$IDENTITY_DEVICE"
     fi
-    if [ -r "/media/omnixys-identity\$IDENTITY_FILE_PATH" ]; then
-      IDENTITY_FILE="/media/omnixys-identity\$IDENTITY_FILE_PATH"
-    fi
+  fi
+
+  if [ -z "\$IDENTITY_FILE" ] && [ -r "/cdrom\$IDENTITY_FILE_PATH" ]; then
+    IDENTITY_FILE="/cdrom\$IDENTITY_FILE_PATH"
+    log_info "embedded identity selected"
   fi
 
   if [ -z "\$IDENTITY_FILE" ]; then
     if [ "\$IDENTITY_REQUIRED" = "true" ]; then
-      echo "omnixys: required identity file not found (IDENTITY_SOURCE=usb-env); aborting installation" >&2
+      log_info "required identity file not found (IDENTITY_SOURCE=usb-env); aborting installation"
       exit 1
     fi
-    echo "omnixys: identity file not found; continuing with build-time defaults"
+    log_info "identity file not found; continuing with build-time defaults"
   else
     cp "\$IDENTITY_FILE" /var/lib/omnixys/identity.env
+    set +x
     . /var/lib/omnixys/identity.env
-    [ -n "\${OMNIXYS_HOSTNAME:-}" ] && debconf-set netcfg/get_hostname "\$OMNIXYS_HOSTNAME" || true
+    [ -n "\${OMNIXYS_HOSTNAME:-}" ] && { debconf-set netcfg/get_hostname "\$OMNIXYS_HOSTNAME" && log_info "hostname override applied: \$OMNIXYS_HOSTNAME"; } || true
     [ -n "\${OMNIXYS_DOMAIN:-}" ] && debconf-set netcfg/get_domain "\$OMNIXYS_DOMAIN" || true
     [ -n "\${OMNIXYS_FULLNAME:-}" ] && debconf-set passwd/user-fullname "\$OMNIXYS_FULLNAME" || true
     [ -n "\${OMNIXYS_USERNAME:-}" ] && debconf-set passwd/username "\$OMNIXYS_USERNAME" || true
     [ -n "\${OMNIXYS_PASSWORD_HASH:-}" ] && debconf-set passwd/user-password-crypted "\$OMNIXYS_PASSWORD_HASH" || true
+    set -x
   fi
 
   if [ "\$IDENTITY_MOUNTED" = "true" ]; then
