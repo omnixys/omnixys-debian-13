@@ -161,31 +161,25 @@ export default {
 
 ---
 
-## 📦 Changes
-
-<%= nextRelease.notes %>
-
----
-
 ## 💿 Installation Images
 
 Release assets are built automatically for the following profiles:
 
 ### Production / Bare Metal
 
-- amd64
-- arm64
+- **AMD64:** \`omnixys-debian-13-amd64-<%= nextRelease.version %>.iso\`
+- **ARM64:** \`omnixys-debian-13-arm64-<%= nextRelease.version %>.iso\`
 
 Production images are built from \`configs/production.env\`.
 
 ### Virtual Machines
 
-- amd64
-- arm64
+- **AMD64:** \`omnixys-debian-13-amd64-<%= nextRelease.version %>-vm.iso\`
+- **ARM64:** \`omnixys-debian-13-arm64-<%= nextRelease.version %>-vm.iso\`
 
 VM images are built from \`configs/vm.env\`.
 
-For UTM on Apple Silicon, use the **arm64 VM image** rather than the
+> For UTM on Apple Silicon, use the **ARM64 VM image**. rather than the
 arm64 Production image.
 
 ---
@@ -196,6 +190,38 @@ arm64 Production image.
 - Branch: <%= branch.name %>
 - Previous Version: <%= lastRelease ? lastRelease.version : 'N/A' %>
 - Commit: <%= nextRelease.gitHead.substring(0, 7) %>
+
+---
+
+## 🔐 SHA-256 Checksums
+
+Checksums are provided for every installation image:
+
+- \`omnixys-debian-13-amd64-<%= nextRelease.version %>.iso.sha256\`
+- \`omnixys-debian-13-arm64-<%= nextRelease.version %>.iso.sha256\`
+- \`omnixys-debian-13-amd64-<%= nextRelease.version %>-vm.iso.sha256\`
+- \`omnixys-debian-13-arm64-<%= nextRelease.version %>-vm.iso.sha256\`
+
+Verify an image with:
+
+\`\`\`bash
+sha256sum -c <image>.iso.sha256
+\`\`\`
+
+---
+
+## 📦 Changes
+
+<%= nextRelease.notes %>
+
+---
+
+## 🔎 Release Details
+
+- **Git Tag:** <%= nextRelease.gitTag %>
+- **Branch:** <%= branch.name %>
+- **Previous Version:** <%= lastRelease ? lastRelease.version : 'N/A' %>
+- **Commit:** <%= nextRelease.gitHead.substring(0, 7) %>
 
 ---
 

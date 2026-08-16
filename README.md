@@ -162,10 +162,8 @@ for UTM/ARM64 VM installations.
 Since the release pipeline also publishes dedicated VM images:
 `omnixys-debian-13-<arch>-<version>-vm.iso`. These are built exclusively from
 `configs/vm.env` (no production secrets, no identity-USB requirement,
-`INSTALL_FIRMWARE=false`) and are marked with `"profile": "vm"` in their
-`.build-info.json`, so they can be distinguished machine-readably from the
-production artifacts. Use the `-vm` image for UTM/ARM64 VM installs, or build
-manually:
+`INSTALL_FIRMWARE=false`) and are identifiable by the `-vm` filename suffix.
+Use the `-vm` image for UTM/ARM64 VM installs, or build manually:
 
 ```bash
 ./build.sh --config configs/vm.env --arches amd64,arm64
@@ -230,7 +228,7 @@ Included workflows:
 - `ci.yml`: ShellCheck + dry-run + per-push/per-PR ISO artifacts; commitlint validates Conventional Commit messages
 - `boot-tests.yml`: manual build + BIOS/UEFI smoke tests (matrix-ready backend structure)
 - `semantic-release.yml`: automatic SemVer releases directly on `main` pushes (tag + GitHub Release + changelog)
-- `release.yml`: release asset builder (`.iso`, `.sha256`, `.sha512`, `build-info.json`, `sbom.cdx.json`) for production and `-vm` images
+- `release.yml`: release asset builder (`.iso`, `.iso.sha256`) for production and `-vm` images
 
 Release builds require these GitHub Actions secrets:
 

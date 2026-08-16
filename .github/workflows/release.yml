@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install build tooling
-        run: sudo apt-get update; sudo apt-get install -y xorriso wget curl openssl jq
+        run: sudo apt-get update; sudo apt-get install -y xorriso wget curl openssl
       - name: Resolve release version
         id: version
         shell: bash
@@ -105,54 +105,6 @@ jobs:
             iso_path="artifacts/release/${base_name}.iso"
             cp "output/omnixys-debian-13-${arch}-auto.iso" "$iso_path"
             sha256sum "$iso_path" > "${iso_path}.sha256"
-            sha512sum "$iso_path" > "${iso_path}.sha512"
-
-            jq -n \
-              --arg version "${{ steps.version.outputs.version }}" \
-              --arg gitCommit "${{ github.sha }}" \
-              --arg backend "${{ matrix.backend }}" \
-              --arg distro "${{ matrix.distro }}" \
-              --arg arch "$arch" \
-              --arg buildDate "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
-              --arg frameworkVersion "${{ steps.version.outputs.version }}" \
-              '{
-                version: $version,
-                gitCommit: $gitCommit,
-                backend: $backend,
-                distro: $distro,
-                arch: $arch,
-                buildDate: $buildDate,
-                frameworkVersion: $frameworkVersion
-              }' > "artifacts/release/${base_name}.build-info.json"
-
-            jq -n \
-              --arg bomFormat "CycloneDX" \
-              --arg specVersion "1.5" \
-              --arg serialNumber "urn:uuid:${{ github.run_id }}-${{ github.run_attempt }}-${arch}" \
-              --arg timestamp "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
-              --arg name "$base_name" \
-              --arg version "${{ steps.version.outputs.version }}" \
-              '{
-                bomFormat: $bomFormat,
-                specVersion: $specVersion,
-                serialNumber: $serialNumber,
-                version: 1,
-                metadata: {
-                  timestamp: $timestamp,
-                  component: {
-                    type: "file",
-                    name: $name,
-                    version: $version
-                  }
-                },
-                components: [
-                  {
-                    type: "application",
-                    name: "omnixys-installer-framework",
-                    version: $version
-                  }
-                ]
-              }' > "artifacts/release/${base_name}.sbom.cdx.json"
           done
 
           echo "glob=artifacts/release/*" >> "$GITHUB_OUTPUT"
@@ -185,7 +137,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install build tooling
-        run: sudo apt-get update; sudo apt-get install -y xorriso wget curl openssl jq
+        run: sudo apt-get update; sudo apt-get install -y xorriso wget curl openssl
       - name: Resolve release version
         id: version
         shell: bash
@@ -242,56 +194,6 @@ jobs:
             iso_path="artifacts/release/${base_name}.iso"
             cp "output/omnixys-debian-13-${arch}-auto.iso" "$iso_path"
             sha256sum "$iso_path" > "${iso_path}.sha256"
-            sha512sum "$iso_path" > "${iso_path}.sha512"
-
-            jq -n \
-              --arg version "${{ steps.version.outputs.version }}" \
-              --arg gitCommit "${{ github.sha }}" \
-              --arg backend "debian-preseed" \
-              --arg distro "debian-13" \
-              --arg profile "vm" \
-              --arg arch "$arch" \
-              --arg buildDate "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
-              --arg frameworkVersion "${{ steps.version.outputs.version }}" \
-              '{
-                version: $version,
-                gitCommit: $gitCommit,
-                backend: $backend,
-                distro: $distro,
-                profile: $profile,
-                arch: $arch,
-                buildDate: $buildDate,
-                frameworkVersion: $frameworkVersion
-              }' > "artifacts/release/${base_name}.build-info.json"
-
-            jq -n \
-              --arg bomFormat "CycloneDX" \
-              --arg specVersion "1.5" \
-              --arg serialNumber "urn:uuid:${{ github.run_id }}-${{ github.run_attempt }}-${arch}" \
-              --arg timestamp "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
-              --arg name "$base_name" \
-              --arg version "${{ steps.version.outputs.version }}" \
-              '{
-                bomFormat: $bomFormat,
-                specVersion: $specVersion,
-                serialNumber: $serialNumber,
-                version: 1,
-                metadata: {
-                  timestamp: $timestamp,
-                  component: {
-                    type: "file",
-                    name: $name,
-                    version: $version
-                  }
-                },
-                components: [
-                  {
-                    type: "application",
-                    name: "omnixys-installer-framework",
-                    version: $version
-                  }
-                ]
-              }' > "artifacts/release/${base_name}.sbom.cdx.json"
           done
 
           echo "glob=artifacts/release/*" >> "$GITHUB_OUTPUT"
