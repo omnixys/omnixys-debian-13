@@ -3,6 +3,20 @@
 All notable changes in this project will be documented in this file.
 
 
+## [1.3.1](https://github.com/omnixys/omnixys-debian-13/compare/v1.3.0...v1.3.1) (2026-08-16)
+
+### Release
+
+* **Release:** publish only iso + sha256 assets ([](https://github.com/omnixys/omnixys-debian-13/commit/8783b0a8fb2644a746d6be16da8d0c8291f64195))
+
+### Vm
+
+* **Vm:** publish only iso + sha256 assets ([](https://github.com/omnixys/omnixys-debian-13/commit/11fdeb3621255d772b4fb5d07c0ff3e418b4ac01))
+
+### Workflow
+
+* **Workflow:** remove nightly ISO release channel ([](https://github.com/omnixys/omnixys-debian-13/commit/ce8cefc62d393bf70367277653f2ce12676642c9))
+
 ## [1.3.0](https://github.com/omnixys/omnixys-debian-13/compare/v1.2.1...v1.3.0) (2026-08-16)
 
 ### Identity
