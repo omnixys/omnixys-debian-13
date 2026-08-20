@@ -3,6 +3,20 @@
 All notable changes in this project will be documented in this file.
 
 
+## [1.1.0](https://github.com/omnixys/omnixys-debian-13/compare/v1.0.0...v1.1.0) (2026-08-20)
+
+### Agent
+
+* **Agent:** add repository development instructions ([](https://github.com/omnixys/omnixys-debian-13/commit/e683643ef1311f7f67e98d4d09cc4f3116542519))
+
+### Installer
+
+* **Installer:** add static IP configuration via dhcpcd ([](https://github.com/omnixys/omnixys-debian-13/commit/a75f41dd9df80b1b3ffa3ee7948517c715ad62a8))
+
+### Release
+
+* **Release:** Update release.config.mjs ([](https://github.com/omnixys/omnixys-debian-13/commit/3403f766e0963baf765f452f1fdc8dc1f9c61c23))
+
 ## 1.0.0 (2026-08-16)
 
 ### Build
