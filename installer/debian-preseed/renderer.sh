@@ -347,6 +347,7 @@ IDENTITY_SOURCE="${IDENTITY_SOURCE:-none}"
 IDENTITY_REQUIRED="${IDENTITY_REQUIRED:-false}"
 IDENTITY_FILE_PATH="${IDENTITY_FILE_PATH:-/identity.env}"
 IDENTITY_DEVICE_LABEL="${IDENTITY_DEVICE_LABEL:-OMNIXYS-ID}"
+IDENTITY_CONFIRM="${IDENTITY_CONFIRM:-true}"
 IDENTITY_DEVICE_RETRIES=5
 IDENTITY_DEVICE_RETRY_DELAY=1
 
@@ -468,6 +469,108 @@ mount_identity_device() {
   return 1
 }
 
+run_identity_confirm_dialog() {
+  [ "\$IDENTITY_CONFIRM" = "true" ] || return 0
+
+  local UI_CMD=""
+  if command -v whiptail >/dev/null 2>&1; then
+    UI_CMD="whiptail"
+  elif command -v dialog >/dev/null 2>&1; then
+    UI_CMD="dialog"
+  else
+    log_info "neither whiptail nor dialog available; skipping identity confirm dialog"
+    return 0
+  fi
+
+  log_info "identity confirm dialog starting (UI: \$UI_CMD)"
+
+  local TITLE="Omnixys – Identity Configuration"
+  local W=60
+  local H=20
+
+  prompt_value() {
+    local label="\$1"
+    local var_name="\$2"
+    local current="\${!var_name:-}"
+    local result
+
+    result="\$(
+      \$UI_CMD --inputbox \"\$label\" \$H \$W \"\$current\" 2>&1
+    )"
+    if [ \$? -eq 0 ]; then
+      printf '%s' \"\$result\"
+    else
+      printf '%s' \"\$current\"
+    fi
+  }
+
+  show_password_status() {
+    local label="\$1"
+    local is_set="\$2"
+    local status="[nicht gesetzt]"
+    if [ \"\$is_set\" = \"true\" ]; then
+      status=\"[gesetzt]\"
+    fi
+    \$UI_CMD --msgbox \"\$label\\n\\nStatus: \$status\" \$H \$W 2>&1
+  }
+
+  OMNIXYS_HOSTNAME="\$(prompt_value 'Hostname:' 'OMNIXYS_HOSTNAME')"
+  OMNIXYS_DOMAIN="\$(prompt_value 'Domain:' 'OMNIXYS_DOMAIN')"
+  OMNIXYS_FULLNAME="\$(prompt_value 'Vollständiger Name:' 'OMNIXYS_FULLNAME')"
+  OMNIXYS_USERNAME="\$(prompt_value 'Benutzername:' 'OMNIXYS_USERNAME')"
+
+  if [ -n \"\${OMNIXYS_SSH_PUBLIC_KEY:-}\" ]; then
+    OMNIXYS_SSH_PUBLIC_KEY="\$(prompt_value 'SSH Public Key:' 'OMNIXYS_SSH_PUBLIC_KEY')"
+  fi
+
+  local pw_set=\"false\"
+  if [ -n \"\${OMNIXYS_PASSWORD_HASH:-}\" ]; then
+    pw_set=\"true\"
+  fi
+  show_password_status 'Passwort-Hash:' \"\$pw_set\"
+
+  OMNIXYS_NETWORK_INTERFACE="\$(prompt_value 'Netzwerk-Interface (z.B. eno1):' 'OMNIXYS_NETWORK_INTERFACE')"
+  OMNIXYS_STATIC_IP="\$(prompt_value 'Statische IP (z.B. 192.168.2.101/24):' 'OMNIXYS_STATIC_IP')"
+  OMNIXYS_STATIC_ROUTERS="\$(prompt_value 'Gateway/Router (z.B. 192.168.2.1):' 'OMNIXYS_STATIC_ROUTERS')"
+  OMNIXYS_STATIC_DNS="\$(prompt_value 'DNS Server (z.B. 192.168.2.1):' 'OMNIXYS_STATIC_DNS')"
+
+  SUMMARY="Hostname: \$OMNIXYS_HOSTNAME\\n"
+  SUMMARY+=\"Domain: \$OMNIXYS_DOMAIN\\n\"
+  SUMMARY+=\"Name: \$OMNIXYS_FULLNAME\\n\"
+  SUMMARY+=\"Benutzer: \$OMNIXYS_USERNAME\\n\"
+  SUMMARY+=\"Passwort: \$status\\n\"
+  if [ -n \"\$OMNIXYS_NETWORK_INTERFACE\" ]; then
+    SUMMARY+=\"\\nNetzwerk:\\n\"
+    SUMMARY+=\"  Interface: \$OMNIXYS_NETWORK_INTERFACE\\n\"
+    SUMMARY+=\"  IP: \$OMNIXYS_STATIC_IP\\n\"
+    SUMMARY+=\"  Router: \$OMNIXYS_STATIC_ROUTERS\\n\"
+    SUMMARY+=\"  DNS: \$OMNIXYS_STATIC_DNS\\n\"
+  fi
+
+  if \$UI_CMD --yesno \"\$SUMMARY\\n\\nFortfahren?\" \$H \$W 2>&1; then
+    log_info "identity confirm dialog: confirmed"
+  else
+    log_info "identity confirm dialog: cancelled by user"
+    exit 1
+  fi
+
+  cat > /var/lib/omnixys/identity.env <<IDEOF
+OMNIXYS_HOSTNAME=\$OMNIXYS_HOSTNAME
+OMNIXYS_DOMAIN=\$OMNIXYS_DOMAIN
+OMNIXYS_FULLNAME=\"\$OMNIXYS_FULLNAME\"
+OMNIXYS_USERNAME=\$OMNIXYS_USERNAME
+OMNIXYS_SSH_PUBLIC_KEY=\"\${OMNIXYS_SSH_PUBLIC_KEY:-}\"
+OMNIXYS_PASSWORD_HASH='\${OMNIXYS_PASSWORD_HASH:-}'
+OMNIXYS_NETWORK_INTERFACE=\$OMNIXYS_NETWORK_INTERFACE
+OMNIXYS_STATIC_IP=\$OMNIXYS_STATIC_IP
+OMNIXYS_STATIC_ROUTERS=\$OMNIXYS_STATIC_ROUTERS
+OMNIXYS_STATIC_DNS=\$OMNIXYS_STATIC_DNS
+IDEOF
+
+  . /var/lib/omnixys/identity.env
+  log_info "identity confirm dialog: values saved"
+}
+
 run_identity_step() {
   [ "\$IDENTITY_SOURCE" = "usb-env" ] || return 0
 
@@ -509,6 +612,9 @@ run_identity_step() {
     cp "\$IDENTITY_FILE" /var/lib/omnixys/identity.env
     set +x
     . /var/lib/omnixys/identity.env
+
+    run_identity_confirm_dialog
+
     [ -n "\${OMNIXYS_HOSTNAME:-}" ] && { debconf-set netcfg/get_hostname "\$OMNIXYS_HOSTNAME" && log_info "hostname override applied: \$OMNIXYS_HOSTNAME"; } || true
     [ -n "\${OMNIXYS_DOMAIN:-}" ] && debconf-set netcfg/get_domain "\$OMNIXYS_DOMAIN" || true
     [ -n "\${OMNIXYS_FULLNAME:-}" ] && debconf-set passwd/user-fullname "\$OMNIXYS_FULLNAME" || true

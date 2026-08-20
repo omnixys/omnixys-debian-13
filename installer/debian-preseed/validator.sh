@@ -160,6 +160,12 @@ debian_validate_identity_config() {
   if [[ "$IDENTITY_EMBED" == "true" ]] && [[ "$IDENTITY_SOURCE" == "none" ]]; then
     warn "IDENTITY_EMBED=true with IDENTITY_SOURCE=none: identity.env (if present) will be baked in, but runtime lookup is disabled"
   fi
+
+  if [[ -n "${IDENTITY_CONFIRM:-}" ]]; then
+    debian_validate_bool IDENTITY_CONFIRM
+  else
+    IDENTITY_CONFIRM="true"
+  fi
 }
 
 debian_validate_password_input() {
