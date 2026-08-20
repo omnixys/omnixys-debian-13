@@ -3,6 +3,16 @@
 All notable changes in this project will be documented in this file.
 
 
+## [1.2.0](https://github.com/omnixys/omnixys-debian-13/compare/v1.1.0...v1.2.0) (2026-08-20)
+
+### Installer
+
+* **Installer:** add identity confirmation dialog with whiptail ([](https://github.com/omnixys/omnixys-debian-13/commit/261950c4296d3a98e631dab34f8c3e7801d1ed0d))
+
+### Other
+
+* **Other:** Merge branch 'main' of https://github.com/omnixys/omnixys-debian-13 ([](https://github.com/omnixys/omnixys-debian-13/commit/cbe622b239807a44b11eadc97ccea1556e0fcd65))
+
 ## [1.1.0](https://github.com/omnixys/omnixys-debian-13/compare/v1.0.0...v1.1.0) (2026-08-20)
 
 ### Agent
