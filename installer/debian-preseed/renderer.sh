@@ -472,6 +472,12 @@ mount_identity_device() {
 run_identity_confirm_dialog() {
   [ "\$IDENTITY_CONFIRM" = "true" ] || return 0
 
+  # Skip in non-interactive environments (CI, test sandbox, no TTY).
+  if [ ! -t 0 ] && [ ! -t 1 ]; then
+    log_info "non-interactive environment detected; skipping identity confirm dialog"
+    return 0
+  fi
+
   local UI_CMD=""
   if command -v whiptail >/dev/null 2>&1; then
     UI_CMD="whiptail"
