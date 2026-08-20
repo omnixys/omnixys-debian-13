@@ -107,6 +107,14 @@ debian_compose_late_command() {
   cmd+="; if [ -n \"\$INSTALL_HOSTNAME\" ]; then in-target sh -c \"printf '%s\\n' \\\"\$INSTALL_HOSTNAME\\\" > /etc/hostname\"; in-target hostnamectl set-hostname \"\$INSTALL_HOSTNAME\" >/dev/null 2>&1 || true; fi"
   cmd+="; if [ -n \"\$INSTALL_SSH_KEY\" ]; then in-target env INSTALL_USER=\"\$INSTALL_USER\" INSTALL_SSH_KEY=\"\$INSTALL_SSH_KEY\" sh -c 'mkdir -p /home/\$INSTALL_USER/.ssh; printf %s \"\$INSTALL_SSH_KEY\" > /home/\$INSTALL_USER/.ssh/authorized_keys; chown -R \$INSTALL_USER:\$INSTALL_USER /home/\$INSTALL_USER/.ssh; chmod 700 /home/\$INSTALL_USER/.ssh; chmod 600 /home/\$INSTALL_USER/.ssh/authorized_keys'; fi"
 
+  # Static IP configuration via dhcpcd – only when all four network variables are set.
+  cmd+="; INSTALL_NETWORK_IF=\"${NETWORK_INTERFACE:-}\""
+  cmd+="; INSTALL_STATIC_IP=\"${STATIC_IP:-}\""
+  cmd+="; INSTALL_STATIC_ROUTERS=\"${STATIC_ROUTERS:-}\""
+  cmd+="; INSTALL_STATIC_DNS=\"${STATIC_DNS:-}\""
+  cmd+="; if [ -r /var/lib/omnixys/identity.env ]; then . /var/lib/omnixys/identity.env; [ -n \"\${OMNIXYS_NETWORK_INTERFACE:-}\" ] && INSTALL_NETWORK_IF=\"\$OMNIXYS_NETWORK_INTERFACE\"; [ -n \"\${OMNIXYS_STATIC_IP:-}\" ] && INSTALL_STATIC_IP=\"\$OMNIXYS_STATIC_IP\"; [ -n \"\${OMNIXYS_STATIC_ROUTERS:-}\" ] && INSTALL_STATIC_ROUTERS=\"\$OMNIXYS_STATIC_ROUTERS\"; [ -n \"\${OMNIXYS_STATIC_DNS:-}\" ] && INSTALL_STATIC_DNS=\"\$OMNIXYS_STATIC_DNS\"; fi"
+  cmd+="; if [ -n \"\$INSTALL_NETWORK_IF\" ] && [ -n \"\$INSTALL_STATIC_IP\" ] && [ -n \"\$INSTALL_STATIC_ROUTERS\" ] && [ -n \"\$INSTALL_STATIC_DNS\" ]; then in-target sh -c \"printf '\\ninterface %s\\nstatic ip_address=%s\\nstatic routers=%s\\nstatic domain_name_servers=%s\\n' '\\\$INSTALL_NETWORK_IF' '\\\$INSTALL_STATIC_IP' '\\\$INSTALL_STATIC_ROUTERS' '\\\$INSTALL_STATIC_DNS' >> /etc/dhcpcd.conf\"; in-target dhcpcd -k \"\$INSTALL_NETWORK_IF\" || true; in-target dhcpcd \"\$INSTALL_NETWORK_IF\" || true; fi"
+
   if [[ "$REBOOT_AFTER_INSTALL" == "true" ]]; then
     # Reduce reboot-loops into installer by ejecting/unmounting install media before reboot.
     cmd+="; echo 'Omnixys: Installation complete. Remove boot media now.' >/dev/tty1 || true"

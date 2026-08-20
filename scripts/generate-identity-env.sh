@@ -6,15 +6,19 @@ usage() {
 Usage: bash scripts/generate-identity-env.sh [options]
 
 Options:
-  --hostname <value>      Required host name.
-  --domain <value>        Optional domain.
-  --fullname <value>      Required full name.
-  --username <value>      Required username.
-  --ssh-public-key <key>  Optional SSH public key for runtime override.
-  --password <value>      Use the provided cleartext password.
-  --generate-password     Generate a random password and print it once.
-  --output <file>         Output file path. Default: ./identity.env
-  -h, --help              Show this help.
+  --hostname <value>            Required host name.
+  --domain <value>              Optional domain.
+  --fullname <value>            Required full name.
+  --username <value>            Required username.
+  --ssh-public-key <key>        Optional SSH public key for runtime override.
+  --password <value>            Use the provided cleartext password.
+  --generate-password           Generate a random password and print it once.
+  --network-interface <value>   Optional network interface for static IP.
+  --static-ip <value>           Optional static IP with CIDR (e.g. 192.168.2.101/24).
+  --static-routers <value>      Optional default gateway for static IP.
+  --static-dns <value>          Optional DNS server for static IP.
+  --output <file>               Output file path. Default: ./identity.env
+  -h, --help                    Show this help.
 
 The generated file contains only hashed password material:
   OMNIXYS_PASSWORD_HASH=<hash>
@@ -43,6 +47,10 @@ main() {
   local username=""
   local ssh_public_key=""
   local password=""
+  local network_interface=""
+  local static_ip=""
+  local static_routers=""
+  local static_dns=""
   local output_file="identity.env"
   local auto_password="false"
 
@@ -66,6 +74,22 @@ main() {
         ;;
       --ssh-public-key)
         ssh_public_key="${2:-}"
+        shift 2
+        ;;
+      --network-interface)
+        network_interface="${2:-}"
+        shift 2
+        ;;
+      --static-ip)
+        static_ip="${2:-}"
+        shift 2
+        ;;
+      --static-routers)
+        static_routers="${2:-}"
+        shift 2
+        ;;
+      --static-dns)
+        static_dns="${2:-}"
         shift 2
         ;;
       --password)
@@ -114,6 +138,15 @@ OMNIXYS_USERNAME=$username
 OMNIXYS_SSH_PUBLIC_KEY="$ssh_public_key"
 OMNIXYS_PASSWORD_HASH='$password_hash'
 EOF
+
+  if [[ -n "$network_interface" ]]; then
+    cat >>"$output_file" <<EOF
+OMNIXYS_NETWORK_INTERFACE=$network_interface
+OMNIXYS_STATIC_IP=$static_ip
+OMNIXYS_STATIC_ROUTERS=$static_routers
+OMNIXYS_STATIC_DNS=$static_dns
+EOF
+  fi
 
   echo "Wrote $output_file"
 }
