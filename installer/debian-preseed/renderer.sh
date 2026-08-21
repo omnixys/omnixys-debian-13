@@ -311,7 +311,11 @@ debian_partition_mode_values() {
   case "$PARTITION_MODE" in
     erase)
       PARTMAN_METHOD="regular"
-      PARTMAN_RECIPE_DIRECTIVE="$(debian_compose_expert_recipe_preseed bios)"
+      if [[ "$TARGET_DISK_MODE" == "auto" ]]; then
+        PARTMAN_RECIPE_DIRECTIVE="$(debian_compose_expert_recipe_preseed bios)"
+      else
+        PARTMAN_RECIPE_DIRECTIVE="d-i partman-auto/choose_recipe select atomic"
+      fi
       ;;
     lvm)
       PARTMAN_METHOD="lvm"
@@ -709,6 +713,10 @@ wipe_disk() {
 
 set_recipe() {
   [ "$PARTITION_MODE" = "erase" ] || return 0
+  [ "$TARGET_DISK_MODE" = "auto" ] || {
+    log_info "Selected recipe: atomic (built-in)"
+    return 0
+  }
   if [ -d "$EFI_ROOT" ]; then
     recipe="$UEFI_RECIPE"
     recipe_name="UEFI/GPT"

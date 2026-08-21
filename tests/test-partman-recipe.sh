@@ -84,6 +84,7 @@ FINISH_ACTION='d-i debian-installer/exit/halt boolean true'
 PARTITION_MODE=erase
 FILESYSTEM=xfs
 ARCH=arm64
+TARGET_DISK_MODE=auto
 debian_partition_mode_values
 debian_render_template "$ROOT_DIR/templates/debian-preseed.cfg.template" "$SANDBOX/erase.cfg"
 grep -q '^d-i partman/early_command string sh /cdrom/omnixys-partman.sh$' "$SANDBOX/erase.cfg"
@@ -95,6 +96,17 @@ if grep -q 'partman-auto/choose_recipe' "$SANDBOX/erase.cfg"; then
 fi
 if grep -Eq '__[A-Z0-9_]+__' "$SANDBOX/erase.cfg"; then
   echo "erase preseed contains unresolved placeholders"
+  exit 1
+fi
+
+PARTITION_MODE=erase
+FILESYSTEM=btrfs
+TARGET_DISK_MODE=manual
+debian_partition_mode_values
+debian_render_template "$ROOT_DIR/templates/debian-preseed.cfg.template" "$SANDBOX/vm.cfg"
+grep -q '^d-i partman-auto/choose_recipe select atomic$' "$SANDBOX/vm.cfg"
+if grep -q 'partman-auto/expert_recipe' "$SANDBOX/vm.cfg"; then
+  echo "manual VM preseed unexpectedly contains an expert recipe"
   exit 1
 fi
 

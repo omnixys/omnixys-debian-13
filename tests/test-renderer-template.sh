@@ -33,8 +33,8 @@ if grep -q 'RESOLVED_TARGET_DISK="/dev/sda"' "$RENDERER"; then
   exit 1
 fi
 
-grep -q '^TARGET_DISK_MODE=auto$' "$VM_CONFIG"
-grep -q '^TARGET_DISK=$' "$VM_CONFIG"
+grep -q '^TARGET_DISK_MODE=manual$' "$VM_CONFIG"
+grep -q '^TARGET_DISK=/dev/vda$' "$VM_CONFIG"
 grep -q '^PARTITION_MODE=erase$' "$VM_CONFIG"
 
 echo "Renderer template placeholders test passed"
