@@ -14,3 +14,5 @@ Thumbs.db
 *.swo
 identity.env
 node_modules
+
+omnixys-debian-13-arm64-1.2.1-vm.iso
