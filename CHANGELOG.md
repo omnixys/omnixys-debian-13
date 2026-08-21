@@ -3,6 +3,16 @@
 All notable changes in this project will be documented in this file.
 
 
+## [1.2.1](https://github.com/omnixys/omnixys-debian-13/compare/v1.2.0...v1.2.1) (2026-08-20)
+
+### Installer
+
+* **Installer:** skip identity dialog in non-interactive environments ([](https://github.com/omnixys/omnixys-debian-13/commit/ef7c2f92b7041234a9f32113101816ca82c7e430))
+
+### Other
+
+* **Other:** Merge branch 'main' of https://github.com/omnixys/omnixys-debian-13 ([](https://github.com/omnixys/omnixys-debian-13/commit/3886059cfcd7d269063618631950c7d885b638fb))
+
 ## [1.2.0](https://github.com/omnixys/omnixys-debian-13/compare/v1.1.0...v1.2.0) (2026-08-20)
 
 ### Installer
