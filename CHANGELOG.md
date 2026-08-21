@@ -3,6 +3,16 @@
 All notable changes in this project will be documented in this file.
 
 
+## [1.2.2](https://github.com/omnixys/omnixys-debian-13/compare/v1.2.1...v1.2.2) (2026-08-21)
+
+### Installer
+
+* **Installer:** fix identity dialog, apply values from identity.env ([](https://github.com/omnixys/omnixys-debian-13/commit/0ce77aa8e9a251c22d4278033521c4045b47a97b))
+
+### Other
+
+* **Other:** Merge branch 'main' of https://github.com/omnixys/omnixys-debian-13 ([](https://github.com/omnixys/omnixys-debian-13/commit/c161dc619db2536fa996bb7f23f94586896682b0))
+
 ## [1.2.1](https://github.com/omnixys/omnixys-debian-13/compare/v1.2.0...v1.2.1) (2026-08-20)
 
 ### Installer
