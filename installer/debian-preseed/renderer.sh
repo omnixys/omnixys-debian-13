@@ -14,7 +14,7 @@ debian_render_template() {
   local template="$1"
   local output="$2"
 
-  local esc_fullname esc_ssh_key esc_late_command esc_tasksel esc_pkgsel esc_anna_modules esc_finish_action esc_preseed_early_command
+  local esc_fullname esc_ssh_key esc_late_command esc_tasksel esc_pkgsel esc_anna_modules esc_finish_action esc_preseed_early_command esc_partman_early_command
   esc_fullname="$(escape_sed_replacement "$FULLNAME")"
   esc_ssh_key="$(escape_sed_replacement "${SSH_PUBLIC_KEY:-}")"
   esc_late_command="$(escape_sed_replacement "$LATE_COMMAND")"
@@ -23,6 +23,7 @@ debian_render_template() {
   esc_anna_modules="$(escape_sed_replacement "$ANNA_MODULES")"
   esc_finish_action="$(escape_sed_replacement "$FINISH_ACTION")"
   esc_preseed_early_command="$(escape_sed_replacement "$PRESEED_EARLY_COMMAND")"
+  esc_partman_early_command="$(escape_sed_replacement "${PARTMAN_EARLY_COMMAND:-sh /cdrom/omnixys-partman.sh}")"
 
   sed \
     -e "s|__HOSTNAME__|$HOSTNAME|g" \
@@ -37,9 +38,9 @@ debian_render_template() {
     -e "s|__TIMEZONE__|$TIMEZONE|g" \
     -e "s|__TARGET_DISK__|$RESOLVED_TARGET_DISK|g" \
     -e "s|__PRESEED_EARLY_COMMAND__|$esc_preseed_early_command|g" \
+    -e "s|__PARTMAN_EARLY_COMMAND__|$esc_partman_early_command|g" \
     -e "s|__FILESYSTEM__|$FILESYSTEM|g" \
     -e "s|__PARTMAN_METHOD__|$PARTMAN_METHOD|g" \
-    -e "s|__PARTMAN_RECIPE__|$PARTMAN_RECIPE|g" \
     -e "s|__APT_MIRROR__|$APT_MIRROR|g" \
     -e "s|__SSH_PUBLIC_KEY__|$esc_ssh_key|g" \
     -e "s|__SSH_PASSWORD_AUTH__|$SSH_PASSWORD_AUTH|g" \
@@ -52,7 +53,13 @@ debian_render_template() {
     -e "s|__ANNA_MODULES__|$esc_anna_modules|g" \
     -e "s|__LATE_COMMAND__|$esc_late_command|g" \
     -e "s|__FINISH_ACTION__|$esc_finish_action|g" \
-    "$template" >"$output"
+    "$template" | while IFS= read -r line || [[ -n "$line" ]]; do
+      if [[ "$line" == "__PARTMAN_RECIPE_DIRECTIVE__" ]]; then
+        printf '%s\n' "$PARTMAN_RECIPE_DIRECTIVE"
+      else
+        printf '%s\n' "$line"
+      fi
+    done >"$output"
 }
 
 debian_compose_tasksel() {
@@ -304,11 +311,11 @@ debian_partition_mode_values() {
   case "$PARTITION_MODE" in
     erase)
       PARTMAN_METHOD="regular"
-      PARTMAN_RECIPE="atomic"
+      PARTMAN_RECIPE_DIRECTIVE="$(debian_compose_expert_recipe_preseed bios)"
       ;;
     lvm)
       PARTMAN_METHOD="lvm"
-      PARTMAN_RECIPE="atomic"
+      PARTMAN_RECIPE_DIRECTIVE="d-i partman-auto/choose_recipe select atomic"
       ;;
     *)
       die "Unsupported PARTITION_MODE in renderer: $PARTITION_MODE"
@@ -316,161 +323,350 @@ debian_partition_mode_values() {
   esac
 }
 
-debian_compose_disk_early_command_auto() {
-  printf '%s' "sh /cdrom/omnixys-disk-detect.sh"
+debian_compose_expert_recipe() {
+  local firmware="$1"
+  case "$firmware" in
+    uefi)
+      cat <<EOF
+omnixys-erase ::
+768 788 1024 free
+  \$primary{ }
+  \$iflabel{ gpt }
+  \$reusemethod{ }
+  method{ efi }
+  format{ }
+  mountpoint{ /boot/efi } .
+8000 10000 -1 $FILESYSTEM
+  \$primary{ }
+  method{ format }
+  format{ }
+  use_filesystem{ }
+  filesystem{ $FILESYSTEM }
+  mountpoint{ / } .
+500 550 100% linux-swap
+  \$reusemethod{ }
+  method{ swap }
+  format{ } .
+EOF
+      ;;
+    bios)
+      cat <<EOF
+omnixys-erase ::
+1 1 1 free
+  \$primary{ }
+  \$iflabel{ gpt }
+  \$reusemethod{ }
+  method{ biosgrub } .
+8000 10000 -1 $FILESYSTEM
+  \$primary{ }
+  method{ format }
+  format{ }
+  use_filesystem{ }
+  filesystem{ $FILESYSTEM }
+  mountpoint{ / } .
+500 550 100% linux-swap
+  \$reusemethod{ }
+  method{ swap }
+  format{ } .
+EOF
+      ;;
+    *) die "Unsupported firmware recipe: $firmware" ;;
+  esac
 }
 
-debian_render_disk_detect_script() {
-  local out="$GENERATED_DIR/omnixys-disk-detect.sh"
-  cat >"$out" <<'EOF'
-#!/bin/sh
-set -x
-exec >/var/log/omnixys-disk-detect.log 2>&1
+debian_compose_expert_recipe_preseed() {
+  local firmware="$1"
+  local recipe line
+  recipe="$(debian_compose_expert_recipe "$firmware")"
+  printf 'd-i partman-auto/expert_recipe string \\\n'
+  while [[ "$recipe" == *$'\n'* ]]; do
+    line="${recipe%%$'\n'*}"
+    printf '  %s \\\n' "$line"
+    recipe="${recipe#*$'\n'}"
+  done
+  printf '  %s\n' "$recipe"
+}
+
+debian_render_partman_script() {
+  local out="$GENERATED_DIR/omnixys-partman.sh"
+  {
+    printf '%s\n' '#!/bin/sh' 'set -eu'
+    printf 'PARTITION_MODE=%s\n' "$(shell_single_quote "$PARTITION_MODE")"
+    printf 'TARGET_DISK_MODE=%s\n' "$(shell_single_quote "$TARGET_DISK_MODE")"
+    printf 'TARGET_DISK=%s\n' "$(shell_single_quote "${TARGET_DISK:-}")"
+    printf 'TARGET_DISK_BY_ID=%s\n' "$(shell_single_quote "${TARGET_DISK_BY_ID:-}")"
+    printf 'IDENTITY_DEVICE_LABEL=%s\n' "$(shell_single_quote "${IDENTITY_DEVICE_LABEL:-OMNIXYS_ID}")"
+    printf '%s\n' '# shellcheck disable=SC2016 # partman recipe tokens are literal'
+    printf 'UEFI_RECIPE=%s\n' "$(shell_single_quote "$(debian_compose_expert_recipe uefi)")"
+    printf '%s\n' '# shellcheck disable=SC2016 # partman recipe tokens are literal'
+    printf 'BIOS_RECIPE=%s\n' "$(shell_single_quote "$(debian_compose_expert_recipe bios)")"
+    cat <<'EOF'
+
+DEV_ROOT="${OMNIXYS_DEV_ROOT:-/dev}"
+SYS_BLOCK_ROOT="${OMNIXYS_SYS_BLOCK_ROOT:-/sys/block}"
+PROC_MOUNTS="${OMNIXYS_PROC_MOUNTS:-/proc/mounts}"
+EFI_ROOT="${OMNIXYS_EFI_ROOT:-/sys/firmware/efi}"
+TEST_MODE="${OMNIXYS_PARTMAN_TEST_MODE:-false}"
+WIPE_LOG="${OMNIXYS_WIPE_LOG:-}"
+DEV_ROOT="$(readlink -f "$DEV_ROOT" 2>/dev/null || printf '%s' "$DEV_ROOT")"
+SYS_BLOCK_ROOT="$(readlink -f "$SYS_BLOCK_ROOT" 2>/dev/null || printf '%s' "$SYS_BLOCK_ROOT")"
+
+if [ -n "${OMNIXYS_PARTMAN_LOG:-}" ]; then
+  exec >"$OMNIXYS_PARTMAN_LOG" 2>&1
+else
+  mkdir -p /var/log/installer
+  exec >/var/log/installer/omnixys-partman.log 2>&1
+fi
+
+log_info() {
+  printf 'omnixys-partman: %s\n' "$*"
+}
+
+fail() {
+  log_info "ERROR: $*"
+  exit 1
+}
 
 normalize_parent() {
   dev="$1"
   case "$dev" in
     /dev/nvme*n*p[0-9]*) printf '%s\n' "${dev%p[0-9]*}" ;;
     /dev/mmcblk*p[0-9]*) printf '%s\n' "${dev%p[0-9]*}" ;;
-    /dev/*[0-9]) printf '%s\n' "${dev%[0-9]*}" ;;
+    /dev/nvme*n[0-9]|/dev/mmcblk[0-9]*) printf '%s\n' "$dev" ;;
+    /dev/sd[a-z][0-9]*|/dev/vd[a-z][0-9]*|/dev/xvd[a-z][0-9]*) printf '%s\n' "${dev%%[0-9]*}" ;;
     *) printf '%s\n' "$dev" ;;
   esac
 }
 
 is_ignored_base() {
-  base="$1"
-  case "$base" in
+  case "$1" in
     loop*|ram*|fd*|sr*) return 0 ;;
     *) return 1 ;;
   esac
 }
 
-INSTALL_DEVICE="$(awk '$2 == "/cdrom" {print $1; exit}' /proc/mounts)"
-if [ -z "$INSTALL_DEVICE" ]; then
-  INSTALL_DEVICE="$(awk '$2 == "/hd-media" {print $1; exit}' /proc/mounts)"
-fi
-if [ -z "$INSTALL_DEVICE" ]; then
-  INSTALL_DEVICE="$(awk '$3 ~ /iso9660/ {print $1; exit}' /proc/mounts)"
-fi
-INSTALL_PARENT="$(normalize_parent "$INSTALL_DEVICE")"
+device_path() {
+  printf '%s/%s\n' "${DEV_ROOT%/}" "${1#/dev/}"
+}
 
-ALL_DISKS="$(list-devices disk 2>/dev/null || true)"
-echo "INSTALL_DEVICE=$INSTALL_DEVICE"
-echo "INSTALL_PARENT=$INSTALL_PARENT"
-echo "list-devices disk:"
-printf '%s\n' "$ALL_DISKS"
-
-if command -v lsblk >/dev/null 2>&1; then
-  echo "lsblk:"
-  lsblk
-fi
-
-echo "proc_partitions:"
-cat /proc/partitions || true
-
-NON_REMOVABLE_POOL=""
-FALLBACK_POOL=""
-
-for DISK in $ALL_DISKS; do
-  BASE="${DISK#/dev/}"
-
-  if is_ignored_base "$BASE"; then
-    echo "reject $DISK reason=ignored-base"
-    continue
-  fi
-
-  if [ "$DISK" = "$INSTALL_PARENT" ]; then
-    echo "reject $DISK reason=install-media"
-    continue
-  fi
-
-  if [ ! -b "$DISK" ]; then
-    echo "reject $DISK reason=not-block"
-    continue
-  fi
-
-  FALLBACK_POOL="${FALLBACK_POOL}${DISK}\n"
-
-  REMOVABLE="0"
-  if [ -r "/sys/block/$BASE/removable" ]; then
-    REMOVABLE="$(cat "/sys/block/$BASE/removable" 2>/dev/null || echo 0)"
-  fi
-
-  if [ "$REMOVABLE" = "0" ]; then
-    NON_REMOVABLE_POOL="${NON_REMOVABLE_POOL}${DISK}\n"
-    echo "candidate $DISK removable=$REMOVABLE"
+device_exists() {
+  path="$(device_path "$1")"
+  if [ "$TEST_MODE" = "true" ]; then
+    [ -e "$path" ]
   else
-    echo "reject $DISK reason=removable removable=$REMOVABLE"
+    [ -b "$path" ]
   fi
-done
+}
 
-SELECT_POOL="$NON_REMOVABLE_POOL"
-POOL_KIND="non-removable"
-if [ -z "$(printf '%b' "$SELECT_POOL" | sed '/^$/d')" ]; then
-  SELECT_POOL="$FALLBACK_POOL"
-  POOL_KIND="fallback-all"
-fi
+EXCLUDED=""
+add_excluded() {
+  parent="$(normalize_parent "$1")"
+  case "$parent" in
+    /dev/*) EXCLUDED="${EXCLUDED}${parent}\n" ;;
+  esac
+}
 
-SORTED_POOL="$(printf '%b' "$SELECT_POOL" | sed '/^$/d' | sort -u)"
-echo "POOL_KIND=$POOL_KIND"
-echo "SORTED_POOL=$(printf '%s' "$SORTED_POOL" | tr '\n' ' ')"
+is_excluded() {
+  printf '%b' "$EXCLUDED" | grep -Fxq "$1"
+}
+
+collect_mounted_exclusions() {
+  [ -r "$PROC_MOUNTS" ] || fail "mount table unavailable: $PROC_MOUNTS"
+  while read -r source mountpoint fstype rest; do
+    case "$source" in
+      /dev/*) add_excluded "$source" ;;
+    esac
+    if [ "$mountpoint" = "/cdrom" ] || [ "$mountpoint" = "/hd-media" ] || [ "$fstype" = "iso9660" ]; then
+      add_excluded "$source"
+    fi
+  done <"$PROC_MOUNTS"
+
+  label_path="${DEV_ROOT%/}/disk/by-label/$IDENTITY_DEVICE_LABEL"
+  identity_resolved=""
+  if [ -e "$label_path" ]; then
+    identity_resolved="$(readlink -f "$label_path" 2>/dev/null || true)"
+  elif [ "$DEV_ROOT" = "/dev" ] && command -v findfs >/dev/null 2>&1; then
+    identity_resolved="$(findfs "LABEL=$IDENTITY_DEVICE_LABEL" 2>/dev/null || true)"
+  fi
+  if [ -n "$identity_resolved" ]; then
+    case "$identity_resolved" in
+      "${DEV_ROOT%/}"/*)
+        identity_resolved="${identity_resolved#"${DEV_ROOT%/}"}"
+        add_excluded "/dev$identity_resolved"
+        ;;
+      /dev/*) add_excluded "$identity_resolved" ;;
+    esac
+  fi
+}
+
+is_usb_disk() {
+  disk="$1"
+  base="${disk#/dev/}"
+  sys_device="$(readlink -f "$SYS_BLOCK_ROOT/$base/device" 2>/dev/null || true)"
+  case "$sys_device" in
+    */usb*/*|*/usb*) return 0 ;;
+  esac
+  if command -v udevadm >/dev/null 2>&1 && udevadm info --query=property --name="$(device_path "$disk")" 2>/dev/null | grep -q '^ID_BUS=usb$'; then
+    return 0
+  fi
+  return 1
+}
+
+is_safe_internal() {
+  disk="$1"
+  base="${disk#/dev/}"
+  is_ignored_base "$base" && return 1
+  device_exists "$disk" || return 1
+  is_excluded "$disk" && return 1
+  [ -r "$SYS_BLOCK_ROOT/$base/removable" ] || return 1
+  removable="$(cat "$SYS_BLOCK_ROOT/$base/removable" 2>/dev/null || true)"
+  [ "$removable" = "0" ] || return 1
+  is_usb_disk "$disk" && return 1
+  return 0
+}
+
+collect_internal_pool() {
+  collect_mounted_exclusions
+  all_disks="$(list-devices disk 2>/dev/null || true)"
+  [ -n "$all_disks" ] || fail "list-devices returned no disks"
+  INTERNAL_POOL=""
+  for disk in $all_disks; do
+    parent="$(normalize_parent "$disk")"
+    if [ "$parent" != "$disk" ]; then
+      log_info "reject $disk reason=not-whole-disk"
+    elif is_safe_internal "$disk"; then
+      INTERNAL_POOL="${INTERNAL_POOL}${disk}\n"
+      log_info "candidate $disk"
+    else
+      log_info "reject $disk reason=protected-or-unsafe"
+    fi
+  done
+  INTERNAL_POOL="$(printf '%b' "$INTERNAL_POOL" | sed '/^$/d' | sort -u)"
+  [ -n "$INTERNAL_POOL" ] || fail "no safe internal disks detected"
+}
 
 pick_first_match() {
   prefix="$1"
-  printf '%s\n' "$SORTED_POOL" | sed '/^$/d' | while IFS= read -r d; do
-    case "$d" in
-      "$prefix"*)
-        printf '%s\n' "$d"
-        break
-        ;;
+  printf '%s\n' "$INTERNAL_POOL" | while IFS= read -r disk; do
+    case "$disk" in
+      "$prefix"*) printf '%s\n' "$disk"; break ;;
     esac
   done
 }
 
-TARGET=""
-if [ -z "$TARGET" ]; then TARGET="$(pick_first_match /dev/nvme)"; fi
-if [ -z "$TARGET" ]; then TARGET="$(pick_first_match /dev/vd)"; fi
-if [ -z "$TARGET" ]; then TARGET="$(pick_first_match /dev/sd)"; fi
-if [ -z "$TARGET" ]; then TARGET="$(pick_first_match /dev/xvd)"; fi
-if [ -z "$TARGET" ]; then TARGET="$(pick_first_match /dev/mmcblk)"; fi
-if [ -z "$TARGET" ]; then TARGET="$(printf '%s\n' "$SORTED_POOL" | sed '/^$/d' | head -n1)"; fi
-
-echo "TARGET=$TARGET"
-
-if [ -z "$TARGET" ] || [ ! -b "$TARGET" ]; then
-  for fallback in /dev/nvme0n1 /dev/vda /dev/sda; do
-    if [ -b "$fallback" ]; then
-      TARGET="$fallback"
-      echo "fallback target=$TARGET"
-      break
-    fi
+select_system_disk() {
+  TARGET=""
+  for prefix in /dev/nvme /dev/vd /dev/sd /dev/xvd /dev/mmcblk; do
+    TARGET="$(pick_first_match "$prefix")"
+    [ -z "$TARGET" ] || break
   done
-fi
-
-if [ -n "$TARGET" ] && [ -b "$TARGET" ]; then
-  if debconf-set partman-auto/disk "$TARGET"; then
-    echo "debconf-set partman-auto/disk -> $TARGET"
-  else
-    echo "debconf-set failed for TARGET=$TARGET"
-  fi
-  if debconf-set grub-installer/bootdev "$TARGET"; then
-    echo "debconf-set grub-installer/bootdev -> $TARGET"
-  else
-    echo "debconf-set grub-installer/bootdev failed for TARGET=$TARGET"
-  fi
-else
-  echo "no valid target selected; partman-auto/disk not modified"
-fi
-
-exit 0
-EOF
-  chmod +x "$out"
+  [ -n "$TARGET" ] || TARGET="$(printf '%s\n' "$INTERNAL_POOL" | head -n1)"
+  [ -n "$TARGET" ] || fail "unable to select system disk"
+  is_safe_internal "$TARGET" || fail "selected system disk is no longer safe: $TARGET"
+  log_info "selected system disk $TARGET"
 }
 
-debian_compose_disk_early_command_by_id() {
-  cat <<EOF
-TARGET="\$(readlink -f "$TARGET_DISK_BY_ID" 2>/dev/null || true)"; [ -b "\$TARGET" ] || { echo "omnixys: by-id target not resolvable: $TARGET_DISK_BY_ID" >/var/log/omnixys-disk-detect.log; exit 1; }; debconf-set partman-auto/disk "\$TARGET"
+wipe_disk() {
+  disk="$1"
+  is_safe_internal "$disk" || fail "refusing to wipe protected or unsafe disk: $disk"
+  if [ "$TEST_MODE" = "true" ]; then
+    [ -n "$WIPE_LOG" ] || fail "test mode requires OMNIXYS_WIPE_LOG"
+    printf '%s\n' "$disk" >>"$WIPE_LOG"
+    [ "${OMNIXYS_FAIL_WIPE_DISK:-}" != "$disk" ] || fail "simulated wipe failure: $disk"
+    log_info "test wipe $disk"
+    return 0
+  fi
+
+  path="$(device_path "$disk")"
+  log_info "wiping partition tables and signatures on $disk"
+  if command -v wipefs >/dev/null 2>&1; then
+    wipefs --all --force "$path" || fail "wipefs failed: $disk"
+  fi
+  if command -v blkdiscard >/dev/null 2>&1 && blkdiscard -f "$path"; then
+    log_info "discarded $disk"
+  else
+    dd if=/dev/zero of="$path" bs=512 count=32768 conv=fsync || fail "head wipe failed: $disk"
+    sectors="$(cat "$SYS_BLOCK_ROOT/${disk#/dev/}/size" 2>/dev/null || true)"
+    case "$sectors" in
+      ''|*[!0-9]*) fail "invalid disk size for tail wipe: $disk" ;;
+    esac
+    [ "$sectors" -gt 32768 ] || fail "disk too small for safe tail wipe: $disk"
+    tail_seek=$((sectors - 32768))
+    dd if=/dev/zero of="$path" bs=512 seek="$tail_seek" count=32768 conv=fsync || fail "tail wipe failed: $disk"
+  fi
+  sync
+  if command -v blockdev >/dev/null 2>&1; then
+    blockdev --rereadpt "$path" || fail "partition table reread failed: $disk"
+  elif command -v partprobe >/dev/null 2>&1; then
+    partprobe "$path" || fail "partition table reread failed: $disk"
+  else
+    fail "no partition table reread tool available"
+  fi
+}
+
+set_recipe() {
+  [ "$PARTITION_MODE" = "erase" ] || return 0
+  if [ -d "$EFI_ROOT" ]; then
+    recipe="$UEFI_RECIPE"
+    log_info "selected UEFI/GPT recipe"
+  else
+    recipe="$BIOS_RECIPE"
+    log_info "selected BIOS/GPT recipe"
+  fi
+  debconf-set partman-auto/expert_recipe "$recipe" || fail "unable to set expert recipe"
+}
+
+set_target() {
+  target="$1"
+  device_exists "$target" || fail "target is not a block device: $target"
+  debconf-set partman-auto/disk "$target" || fail "unable to set partman target: $target"
+  debconf-set grub-installer/bootdev "$target" || fail "unable to set grub target: $target"
+}
+
+validate_explicit_target() {
+  target="$1"
+  collect_mounted_exclusions
+  [ "$(normalize_parent "$target")" = "$target" ] || fail "target is not a whole disk: $target"
+  is_safe_internal "$target" || fail "explicit target is protected or unsafe: $target"
+}
+
+set_recipe
+case "$TARGET_DISK_MODE" in
+  auto)
+    collect_internal_pool
+    if [ "$PARTITION_MODE" = "erase" ]; then
+      printf '%s\n' "$INTERNAL_POOL" | while IFS= read -r disk; do
+        wipe_disk "$disk"
+      done
+    fi
+    select_system_disk
+    set_target "$TARGET"
+    ;;
+  by-id)
+    by_id_path="$TARGET_DISK_BY_ID"
+    if [ "$DEV_ROOT" != "/dev" ]; then
+      by_id_path="$(device_path "$TARGET_DISK_BY_ID")"
+    fi
+    resolved="$(readlink -f "$by_id_path" 2>/dev/null || true)"
+    case "$resolved" in
+      "${DEV_ROOT%/}"/*)
+        resolved="${resolved#"${DEV_ROOT%/}"}"
+        resolved="/dev$resolved"
+        ;;
+    esac
+    [ -n "$resolved" ] || fail "by-id target not resolvable"
+    validate_explicit_target "$resolved"
+    set_target "$resolved"
+    ;;
+  manual)
+    validate_explicit_target "$TARGET_DISK"
+    set_target "$TARGET_DISK"
+    ;;
+  *) fail "unsupported target disk mode: $TARGET_DISK_MODE" ;;
+esac
 EOF
+  } >"$out"
+  chmod +x "$out"
 }
 
 debian_render_early_script() {
@@ -492,8 +688,6 @@ debian_render_early_script() {
 mkdir -p /var/log/installer
 exec >/var/log/installer/omnixys-early.log 2>&1
 
-TARGET_DISK_MODE="$TARGET_DISK_MODE"
-TARGET_DISK_BY_ID="${TARGET_DISK_BY_ID:-}"
 IDENTITY_SOURCE="${IDENTITY_SOURCE:-none}"
 IDENTITY_REQUIRED="${IDENTITY_REQUIRED:-false}"
 IDENTITY_FILE_PATH="${IDENTITY_FILE_PATH:-/identity.env}"
@@ -519,33 +713,6 @@ OMNIXYS_STATIC_DNS=$identity_static_dns
 
 log_info() {
   printf 'omnixys: %s\\n' "\$*" >>/var/log/installer/omnixys-early.log 2>/dev/null || true
-}
-
-run_disk_step() {
-  case "\$TARGET_DISK_MODE" in
-    auto)
-      if [ -x /cdrom/omnixys-disk-detect.sh ]; then
-        sh /cdrom/omnixys-disk-detect.sh || echo "disk helper failed"
-      else
-        echo "disk helper missing: /cdrom/omnixys-disk-detect.sh"
-      fi
-      ;;
-    by-id)
-      TARGET="\$(readlink -f "\$TARGET_DISK_BY_ID" 2>/dev/null || true)"
-      if [ -n "\$TARGET" ] && [ -b "\$TARGET" ]; then
-        debconf-set partman-auto/disk "\$TARGET" || echo "debconf-set failed for by-id target"
-        debconf-set grub-installer/bootdev "\$TARGET" || echo "debconf-set grub bootdev failed for by-id target"
-      else
-        echo "by-id target not resolvable: \$TARGET_DISK_BY_ID"
-      fi
-      ;;
-    manual)
-      echo "manual disk mode: no early disk override"
-      ;;
-    *)
-      echo "unknown TARGET_DISK_MODE=\$TARGET_DISK_MODE"
-      ;;
-  esac
 }
 
 detect_identity_device() {
@@ -875,7 +1042,6 @@ run_identity_step() {
   fi
 }
 
-run_disk_step
 run_identity_step
 exit 0
 EOF
@@ -886,6 +1052,10 @@ debian_compose_preseed_early_command() {
   PRESEED_EARLY_COMMAND="sh /cdrom/omnixys-early.sh"
 }
 
+debian_compose_partman_early_command() {
+  PARTMAN_EARLY_COMMAND="sh /cdrom/omnixys-partman.sh"
+}
+
 debian_resolve_target_disk() {
   TARGET_DISK_MODE="${TARGET_DISK_MODE:-manual}"
   case "$TARGET_DISK_MODE" in
@@ -893,11 +1063,10 @@ debian_resolve_target_disk() {
       RESOLVED_TARGET_DISK="$TARGET_DISK"
       ;;
     by-id)
-      RESOLVED_TARGET_DISK="$TARGET_DISK_BY_ID"
+      RESOLVED_TARGET_DISK=""
       ;;
     auto)
-      # Use a real bootstrap value; early_command replaces it with detected target.
-      RESOLVED_TARGET_DISK="/dev/sda"
+      RESOLVED_TARGET_DISK=""
       ;;
     *)
       die "Unsupported TARGET_DISK_MODE in renderer: $TARGET_DISK_MODE"
@@ -940,11 +1109,10 @@ debian_render() {
   debian_partition_mode_values
   debian_resolve_target_disk
   debian_render_early_script
+  debian_render_partman_script
   debian_render_network_late_script
-  if [[ "$TARGET_DISK_MODE" == "auto" ]]; then
-    debian_render_disk_detect_script
-  fi
   debian_compose_preseed_early_command
+  debian_compose_partman_early_command
   TASKSEL_FIRST="$(debian_compose_tasksel)"
   PKGSEL_INCLUDE="$(debian_compose_pkgsel)"
   PKGSEL_UPGRADE="$(debian_compose_pkgsel_upgrade)"

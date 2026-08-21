@@ -10,13 +10,25 @@ RENDERER="$ROOT_DIR/installer/debian-preseed/renderer.sh"
 
 grep -q "__PASSWORD_HASH__" "$TEMPLATE"
 grep -q "__PRESEED_EARLY_COMMAND__" "$TEMPLATE"
+grep -q "__PARTMAN_EARLY_COMMAND__" "$TEMPLATE"
 grep -q "__PARTMAN_METHOD__" "$TEMPLATE"
+grep -q "__PARTMAN_RECIPE_DIRECTIVE__" "$TEMPLATE"
 grep -q "__TASKSEL_FIRST__" "$TEMPLATE"
 grep -q "__LATE_COMMAND__" "$TEMPLATE"
 grep -q "grub-installer/bootdev string __TARGET_DISK__" "$TEMPLATE"
 
 grep -q "sh /cdrom/omnixys-early.sh" "$RENDERER"
-grep -q "set -x" "$RENDERER"
-grep -q "exec >/var/log/omnixys-disk-detect.log 2>&1" "$RENDERER"
+grep -q "sh /cdrom/omnixys-partman.sh" "$RENDERER"
+grep -q "debian_render_partman_script" "$RENDERER"
+grep -q "method{ biosgrub }" "$RENDERER"
+grep -q "method{ efi }" "$RENDERER"
+if grep -q "omnixys-disk-detect.sh" "$RENDERER"; then
+  echo "legacy disk-detect renderer is still present"
+  exit 1
+fi
+if grep -q 'RESOLVED_TARGET_DISK="/dev/sda"' "$RENDERER"; then
+  echo "unsafe automatic bootstrap disk is still present"
+  exit 1
+fi
 
 echo "Renderer template placeholders test passed"

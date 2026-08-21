@@ -122,6 +122,26 @@ Install behavior:
 - `SSH_PASSWORD_AUTH=true|false`
 - `SSH_PERMIT_ROOT_LOGIN=no|prohibit-password|yes`
 
+### Automatic disk selection and erase mode
+
+Disk discovery runs from Debian Installer's `partman/early_command`, immediately
+before partitioning. This avoids retaining a guessed `/dev/sda` value when NVMe or
+virtio devices appear later in installer startup.
+
+With `PARTITION_MODE=erase` and `TARGET_DISK_MODE=auto`, every safely classified
+internal HDD, SSD, NVMe, or virtio disk has its partition tables and detectable
+signatures removed. One disk is then selected for EFI/BIOS boot and `/`, using the
+stable priority `nvme`, `vd`, `sd`, `xvd`, `mmcblk` and alphabetical order within
+each class. Other internal disks remain empty and unpartitioned.
+
+USB devices (including USB storage reporting `removable=0`), removable devices,
+mounted disks, the installation medium, and the device labeled by
+`IDENTITY_DEVICE_LABEL` are always excluded. There is no fallback to an excluded
+device. Missing safe disks, wipe failures, and target-selection failures stop the
+automatic installation. Manual and by-id modes never wipe unrelated disks; LVM
+continues to use Debian's built-in `atomic` recipe and is outside the multi-disk
+erase behavior.
+
 ## Profiles
 
 Included profile examples:

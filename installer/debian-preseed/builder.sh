@@ -287,9 +287,9 @@ debian_package() {
     run_cmd cp "$GENERATED_DIR/omnixys-early.sh" "$ISO_TREE_DIR/omnixys-early.sh"
     run_cmd chmod 0755 "$ISO_TREE_DIR/omnixys-early.sh"
   fi
-  if [[ -f "$GENERATED_DIR/omnixys-disk-detect.sh" ]]; then
-    run_cmd cp "$GENERATED_DIR/omnixys-disk-detect.sh" "$ISO_TREE_DIR/omnixys-disk-detect.sh"
-    run_cmd chmod 0755 "$ISO_TREE_DIR/omnixys-disk-detect.sh"
+  if [[ -f "$GENERATED_DIR/omnixys-partman.sh" ]]; then
+    run_cmd cp "$GENERATED_DIR/omnixys-partman.sh" "$ISO_TREE_DIR/omnixys-partman.sh"
+    run_cmd chmod 0755 "$ISO_TREE_DIR/omnixys-partman.sh"
   fi
   if [[ -f "$GENERATED_DIR/omnixys-network-late.sh" ]]; then
     run_cmd cp "$GENERATED_DIR/omnixys-network-late.sh" "$ISO_TREE_DIR/omnixys-network-late.sh"
