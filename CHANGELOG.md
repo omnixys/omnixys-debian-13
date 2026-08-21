@@ -3,6 +3,18 @@
 All notable changes in this project will be documented in this file.
 
 
+## [1.2.3](https://github.com/omnixys/omnixys-debian-13/compare/v1.2.2...v1.2.3) (2026-08-21)
+
+### Installer
+
+* **Installer:** auto-confirm identity after timeout ([](https://github.com/omnixys/omnixys-debian-13/commit/0c6bcb9cdadc133c5955c3cf6d73167d24ba3b2d))
+* **Installer:** correct automatic root partition configuration ([](https://github.com/omnixys/omnixys-debian-13/commit/a633ea271e51993c5faff511bf1aa515d2f64fa2))
+* **Installer:** repair network rendering and identity dialog ([](https://github.com/omnixys/omnixys-debian-13/commit/eabda1e78d50cbc923560a15c9c464bd20499f6e))
+
+### Other
+
+* **Other:** Merge branch 'main' of https://github.com/omnixys/omnixys-debian-13 ([](https://github.com/omnixys/omnixys-debian-13/commit/4c33a391a08e400d9ae2cb09f6470407c1572dbf))
+
 ## [1.2.2](https://github.com/omnixys/omnixys-debian-13/compare/v1.2.1...v1.2.2) (2026-08-21)
 
 ### Installer
