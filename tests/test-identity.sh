@@ -54,6 +54,7 @@ export IDENTITY_SOURCE=usb-env
 export IDENTITY_REQUIRED=false
 export IDENTITY_FILE_PATH=/identity.env
 export IDENTITY_DEVICE_LABEL=OMNIXYS_ID
+export IDENTITY_CONFIRM=false
 
 export BACKEND_WORK_DIR="$SANDBOX"
 export GENERATED_DIR="$SANDBOX/generated"
@@ -64,6 +65,7 @@ debian_resolve_password_hash
 debian_partition_mode_values
 debian_resolve_target_disk
 debian_render_early_script
+debian_render_network_late_script
 debian_compose_preseed_early_command
 # Globals consumed by debian_render_template(); exported so they are
 # recognized as externally-used by shellcheck and visible to the renderer.
@@ -80,6 +82,7 @@ debian_render_template \
 
 PRESEED="$GENERATED_DIR/preseed.cfg"
 EARLY="$GENERATED_DIR/omnixys-early.sh"
+NETWORK_LATE="$GENERATED_DIR/omnixys-network-late.sh"
 
 # --- Rendered preseed carries build-time defaults that the identity
 # --- mechanism overrides at runtime (HOSTNAME, DOMAIN, FULLNAME,
@@ -91,6 +94,7 @@ grep -q 'd-i passwd/user-fullname string VM Admin' "$PRESEED"
 grep -q 'd-i passwd/username string vmadmin' "$PRESEED"
 grep -q 'd-i passwd/user-password-crypted password ' "$PRESEED"
 grep -q 'd-i preseed/early_command string sh /cdrom/omnixys-early.sh' "$PRESEED"
+grep -q 'sh /cdrom/omnixys-network-late.sh' "$PRESEED"
 
 grep -q 'debconf-set netcfg/get_hostname "$OMNIXYS_HOSTNAME"' "$EARLY"
 grep -q 'debconf-set netcfg/get_domain "$OMNIXYS_DOMAIN"' "$EARLY"
@@ -103,7 +107,7 @@ grep -q 'OMNIXYS_HOSTNAME' "$PRESEED"
 
 grep -q 'identity is required but missing' "$EARLY" && { echo "old abort message still present"; exit 1; }
 grep -q 'required identity file not found (IDENTITY_SOURCE=usb-env); aborting installation' "$EARLY"
-grep -q 'continuing with build-time defaults' "$EARLY"
+grep -q 'prompting for interactive input' "$EARLY"
 
 grep -q 'debian_compose_identity_early_command' "$RENDERER" && { echo "dead duplicate function still present"; exit 1; }
 
@@ -124,6 +128,7 @@ sandboxize() {
     -e "s|/var/lib/omnixys|$SANDBOX/var/lib/omnixys|g" \
     -e "s|/media/omnixys-identity|$SANDBOX/media/omnixys-identity|g" \
     -e "s|/var/log|$SANDBOX/var/log|g" \
+    -e "s|/usr/share/debconf|$SANDBOX/usr/share/debconf|g" \
     -e "s|/dev/disk/by-label|$SANDBOX/dev/disk/by-label|g" \
     -e "s|IDENTITY_DEVICE_RETRIES=5|IDENTITY_DEVICE_RETRIES=1|g" \
     -e "s|IDENTITY_DEVICE_RETRY_DELAY=1|IDENTITY_DEVICE_RETRY_DELAY=0|g" \
@@ -135,12 +140,13 @@ reset_sandbox() {
   # shellcheck disable=SC2115
   rm -rf "$SANDBOX/cdrom" "$SANDBOX/var/lib" "$SANDBOX/media" "$SANDBOX/dev" "$SANDBOX/var/log/installer"
   : >"$DEBCONF_LOG"
-  : >"$SANDBOX/var/log/omnixys-early.log"
 }
 
 run_early() {
   local script="$1"
-  "$script" >"$SANDBOX/run.out" 2>&1 || return $?
+  local rc=0
+  "$script" >"$SANDBOX/run.out" 2>&1 || rc=$?
+  [[ "$rc" -eq 0 ]] || return "$rc"
 }
 
 # --- Case 1: usb-env + IDENTITY_REQUIRED=true + identity present
@@ -181,20 +187,18 @@ if [ "$rc" -ne 1 ]; then
   exit 1
 fi
 [[ ! -s "$DEBCONF_LOG" ]]
-grep -q 'required identity file not found (IDENTITY_SOURCE=usb-env); aborting installation' "$SANDBOX/var/log/omnixys-early.log"
 grep -q 'required identity file not found (IDENTITY_SOURCE=usb-env); aborting installation' "$SANDBOX/var/log/installer/omnixys-early.log"
 grep -q 'identity device not found' "$SANDBOX/var/log/installer/omnixys-early.log"
 
-# --- Case 3: usb-env + IDENTITY_REQUIRED=false + identity missing
-# --- -> continues with build-time defaults (exit 0), no overrides applied
+# --- Case 3: usb-env + IDENTITY_REQUIRED=false + identity missing + IDENTITY_CONFIRM=false
+# --- -> continues with build defaults (exit 0), no overrides applied
 export IDENTITY_REQUIRED=false
 debian_render_early_script
 sandboxize "$EARLY" "$SANDBOX/case3-early.sh"
 reset_sandbox
 run_early "$SANDBOX/case3-early.sh"
 [[ ! -s "$DEBCONF_LOG" ]]
-grep -q 'continuing with build-time defaults' "$SANDBOX/var/log/omnixys-early.log"
-grep -q 'identity file not found; continuing with build-time defaults' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'identity file not found; prompting for interactive input' "$SANDBOX/var/log/installer/omnixys-early.log"
 grep -q 'identity device not found' "$SANDBOX/var/log/installer/omnixys-early.log"
 
 # --- Case 4: USB OMNIXYS_ID present + embedded identity present
@@ -231,22 +235,18 @@ grep -q 'identity device detected: OMNIXYS_ID' "$SANDBOX/var/log/installer/omnix
 grep -q 'identity device mount succeeded' "$SANDBOX/var/log/installer/omnixys-early.log"
 grep -q 'identity.env found on mounted device' "$SANDBOX/var/log/installer/omnixys-early.log"
 grep -q 'USB identity selected' "$SANDBOX/var/log/installer/omnixys-early.log"
-grep -q 'hostname override applied: omnixys-usb-01' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'hostname configuration applied' "$SANDBOX/var/log/installer/omnixys-early.log"
 if grep -q 'embedded identity selected' "$SANDBOX/var/log/installer/omnixys-early.log"; then
   echo "case4: embedded must not be selected when USB wins" >&2
   exit 1
 fi
-# no secrets in either early log
+# no secrets in the persistent early log
 if grep -qF '$6$case4$secret$hash' "$SANDBOX/var/log/installer/omnixys-early.log"; then
   echo "case4: password hash leaked into persistent early log" >&2
   exit 1
 fi
 if grep -qF 'case4-secret-ssh-key' "$SANDBOX/var/log/installer/omnixys-early.log"; then
   echo "case4: ssh key leaked into persistent early log" >&2
-  exit 1
-fi
-if grep -qF '$6$case4$secret$hash' "$SANDBOX/var/log/omnixys-early.log"; then
-  echo "case4: password hash leaked into ephemeral early log" >&2
   exit 1
 fi
 
@@ -314,7 +314,7 @@ run_early "$SANDBOX/case7-early.sh"
 grep -qF 'netcfg/get_hostname omnixys-03' "$DEBCONF_LOG"
 grep -q 'identity device mount succeeded' "$SANDBOX/var/log/installer/omnixys-early.log"
 grep -q 'USB identity selected' "$SANDBOX/var/log/installer/omnixys-early.log"
-grep -q 'hostname override applied: omnixys-03' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'hostname configuration applied' "$SANDBOX/var/log/installer/omnixys-early.log"
 
 # --- Case 8: auto-detect mount fails, -t vfat fallback succeeds
 # --- -> exact error logged, USB identity loaded, hostname omnixys-03 applied
@@ -343,7 +343,7 @@ run_early "$SANDBOX/case8-early.sh"
 grep -qF 'netcfg/get_hostname omnixys-03' "$DEBCONF_LOG"
 grep -qF "identity device mount (auto) failed: mount: unknown filesystem type 'vfat'" "$SANDBOX/var/log/installer/omnixys-early.log"
 grep -q 'identity device mounted via -t vfat' "$SANDBOX/var/log/installer/omnixys-early.log"
-grep -q 'hostname override applied: omnixys-03' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'hostname configuration applied' "$SANDBOX/var/log/installer/omnixys-early.log"
 
 # --- Case 9: both auto and -t vfat mounts fail, embedded identity present
 # --- -> exact mount errors persisted, fallback to embedded identity (priority 2)
@@ -387,7 +387,7 @@ exit 1
 EOF
 chmod +x "$SANDBOX/bin/mount"
 run_early "$SANDBOX/case9b-early.sh"
-grep -q 'continuing with build-time defaults' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'identity file not found; prompting for interactive input' "$SANDBOX/var/log/installer/omnixys-early.log"
 grep -qF "identity device mount (-t vfat) failed after module load: mount: unknown filesystem type 'vfat'" "$SANDBOX/var/log/installer/omnixys-early.log"
 
 # --- Case 10: auto + vfat fail, modprobe loads vfat module, retry succeeds
@@ -428,7 +428,7 @@ unset MODPROBE_MARKER
 grep -qF 'netcfg/get_hostname omnixys-03' "$DEBCONF_LOG"
 grep -q 'vfat kernel module loaded via modprobe' "$SANDBOX/var/log/installer/omnixys-early.log"
 grep -q 'identity device mounted via -t vfat after module load' "$SANDBOX/var/log/installer/omnixys-early.log"
-grep -q 'hostname override applied: omnixys-03' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'hostname configuration applied' "$SANDBOX/var/log/installer/omnixys-early.log"
 
 # --- Case 11: Bash-ism regression ---
 # --- -> generated early script must not contain += or ${!...} ---
@@ -449,8 +449,8 @@ fi
 export IDENTITY_REQUIRED=false
 debian_render_early_script
 sandboxize "$EARLY" "$SANDBOX/case12-early.sh"
-mkdir_line=$(grep -n 'mkdir -p /var/log/installer' "$SANDBOX/case12-early.sh" | head -1 | cut -d: -f1)
-exec_line=$(grep -n 'exec >' "$SANDBOX/case12-early.sh" | head -1 | cut -d: -f1)
+mkdir_line=$(grep -n "mkdir -p $SANDBOX/var/log/installer" "$SANDBOX/case12-early.sh" | head -1 | cut -d: -f1)
+exec_line=$(grep -n "exec >$SANDBOX/var/log/installer" "$SANDBOX/case12-early.sh" | head -1 | cut -d: -f1)
 if [ -z "$mkdir_line" ] || [ -z "$exec_line" ]; then
   echo "case12: mkdir or exec line not found in generated script" >&2
   exit 1
@@ -461,16 +461,16 @@ if [ "$mkdir_line" -ge "$exec_line" ]; then
 fi
 
 # --- Case 13: sourcing error handling ---
-# --- -> corrupted identity.env: error logged, OMNIXYS_* remains empty ---
-export IDENTITY_REQUIRED=true
+# --- -> corrupted optional identity.env: error logged, no override applied ---
+export IDENTITY_REQUIRED=false
 debian_render_early_script
 sandboxize "$EARLY" "$SANDBOX/case13-early.sh"
 reset_sandbox
 mkdir -p "$SANDBOX/cdrom"
-printf 'OMNIXYS_HOSTNAME=corrupted-syntax-\\\\\n' >"$SANDBOX/cdrom/identity.env"
+printf '%s\n' 'OMNIXYS_HOSTNAME="unterminated' >"$SANDBOX/cdrom/identity.env"
 run_early "$SANDBOX/case13-early.sh"
 grep -q 'identity sourcing start' "$SANDBOX/var/log/installer/omnixys-early.log"
-grep -q 'identity sourcing done, OMNIXYS_HOSTNAME=<unset>' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'identity sourcing failed' "$SANDBOX/var/log/installer/omnixys-early.log"
 if grep -qF 'netcfg/get_hostname' "$DEBCONF_LOG"; then
   echo "case13: debconf-set must not be called when sourcing fails" >&2
   exit 1
@@ -485,12 +485,186 @@ reset_sandbox
 mkdir -p "$SANDBOX/cdrom" "$SANDBOX/var/lib/omnixys"
 printf 'OMNIXYS_HOSTNAME=should-not-apply\n' >"$SANDBOX/cdrom/identity.env"
 chmod 444 "$SANDBOX/var/lib/omnixys"
+set +e
 run_early "$SANDBOX/case14-early.sh"
+rc=$?
+set -e
+[[ "$rc" -eq 1 ]]
 grep -q 'FAILED to copy identity file' "$SANDBOX/var/log/installer/omnixys-early.log"
 if grep -qF 'netcfg/get_hostname' "$DEBCONF_LOG"; then
   echo "case14: debconf-set must not be called when cp fails" >&2
   exit 1
 fi
 chmod 755 "$SANDBOX/var/lib/omnixys"
+
+install_debconf_stub() {
+  mkdir -p "$SANDBOX/usr/share/debconf" "$SANDBOX/cdrom"
+  cp "$ROOT_DIR/templates/omnixys-identity.templates" "$SANDBOX/cdrom/omnixys-identity.templates"
+  cat >"$SANDBOX/usr/share/debconf/confmodule" <<'DBEOF'
+db_x_loadtemplatefile() { printf 'load %s\n' "$*" >>"$DEBCONF_UI_LOG"; }
+db_settitle() { printf 'title %s\n' "$*" >>"$DEBCONF_UI_LOG"; }
+db_set() { DB_LAST_QUESTION="$1"; DB_LAST_VALUE="$2"; printf 'set %s %s\n' "$1" "$2" >>"$DEBCONF_UI_LOG"; }
+db_fset() { printf 'fset %s\n' "$*" >>"$DEBCONF_UI_LOG"; }
+db_input() { printf 'input %s\n' "$*" >>"$DEBCONF_UI_LOG"; }
+db_go() { printf 'go\n' >>"$DEBCONF_UI_LOG"; }
+db_get() {
+  if [ "$1" = "omnixys/confirm" ]; then
+    RET="${DEBCONF_CONFIRM_RESULT:-true}"
+  else
+    RET="$DB_LAST_VALUE"
+  fi
+  printf 'get %s\n' "$1" >>"$DEBCONF_UI_LOG"
+}
+db_subst() { printf 'subst %s\n' "$*" >>"$DEBCONF_UI_LOG"; }
+DBEOF
+}
+
+export DEBCONF_UI_LOG="$SANDBOX/debconf-ui.log"
+
+# --- Case 15: IDENTITY_CONFIRM=true + IDENTITY_SOURCE=none ---
+# --- -> native d-i dialog is shown with build defaults and saves identity.env
+export IDENTITY_SOURCE=none
+export IDENTITY_REQUIRED=false
+export IDENTITY_CONFIRM=true
+debian_render_early_script
+sandboxize "$EARLY" "$SANDBOX/case15-early.sh"
+reset_sandbox
+: >"$DEBCONF_UI_LOG"
+install_debconf_stub
+run_early "$SANDBOX/case15-early.sh"
+if [[ ! -f "$SANDBOX/var/lib/omnixys/identity.env" ]]; then
+  cat "$SANDBOX/var/log/installer/omnixys-early.log" >&2
+  cat "$DEBCONF_UI_LOG" >&2
+  echo "case15: native dialog did not save identity.env" >&2
+  exit 1
+fi
+grep -q 'load .*omnixys-identity.templates omnixys' "$DEBCONF_UI_LOG"
+grep -q 'input critical omnixys/hostname' "$DEBCONF_UI_LOG"
+grep -q 'input critical omnixys/confirm' "$DEBCONF_UI_LOG"
+grep -q 'identity confirm dialog: values saved' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q "OMNIXYS_HOSTNAME='omnixys-vm-01'" "$SANDBOX/var/lib/omnixys/identity.env"
+grep -qF 'netcfg/get_hostname omnixys-vm-01' "$DEBCONF_LOG"
+
+# --- Case 16: existing identity values prefill the native dialog ---
+export IDENTITY_SOURCE=usb-env
+debian_render_early_script
+sandboxize "$EARLY" "$SANDBOX/case16-early.sh"
+reset_sandbox
+: >"$DEBCONF_UI_LOG"
+install_debconf_stub
+cat >"$SANDBOX/cdrom/identity.env" <<'EOF'
+OMNIXYS_HOSTNAME=dialog-node
+OMNIXYS_DOMAIN=dialog.local
+OMNIXYS_FULLNAME="Dialog Admin"
+OMNIXYS_USERNAME=dialog
+OMNIXYS_PASSWORD_HASH='$6$dialog$secret$hash'
+EOF
+run_early "$SANDBOX/case16-early.sh"
+grep -q 'set omnixys/hostname dialog-node' "$DEBCONF_UI_LOG"
+grep -q 'identity confirm dialog: confirmed' "$SANDBOX/var/log/installer/omnixys-early.log"
+if grep -qF '$6$dialog$secret$hash' "$SANDBOX/var/log/installer/omnixys-early.log"; then
+  echo "case16: password hash leaked into early log" >&2
+  exit 1
+fi
+
+# --- Case 16b: cancelling restores values and does not rewrite identity.env ---
+export DEBCONF_CONFIRM_RESULT=false
+debian_render_early_script
+sandboxize "$EARLY" "$SANDBOX/case16b-early.sh"
+reset_sandbox
+: >"$DEBCONF_UI_LOG"
+install_debconf_stub
+run_early "$SANDBOX/case16b-early.sh"
+grep -q 'identity confirm dialog: cancelled by user' "$SANDBOX/var/log/installer/omnixys-early.log"
+[[ ! -f "$SANDBOX/var/lib/omnixys/identity.env" ]]
+unset DEBCONF_CONFIRM_RESULT
+
+# --- Case 17: static network values reach the final target configuration ---
+export IDENTITY_CONFIRM=false
+export NETWORK_INTERFACE=eth0
+export STATIC_IP=192.168.2.101/24
+export STATIC_ROUTERS=192.168.2.1
+export STATIC_DNS="192.168.2.1 1.1.1.1"
+debian_render_network_late_script
+LATE_COMMAND="$(debian_compose_late_command)"
+debian_render_template "$ROOT_DIR/templates/debian-preseed.cfg.template" "$PRESEED"
+grep -q 'sh /cdrom/omnixys-network-late.sh' "$PRESEED"
+if grep -q 'static ip_address=' "$PRESEED"; then
+  echo "case17: inline dhcpcd rendering remains in preseed.cfg" >&2
+  exit 1
+fi
+STATIC_TARGET="$SANDBOX/case17-target"
+mkdir -p "$STATIC_TARGET/etc"
+OMNIXYS_TARGET_ROOT="$STATIC_TARGET" OMNIXYS_IDENTITY_ENV="$SANDBOX/missing-identity.env" "$NETWORK_LATE"
+grep -q '^interface eth0$' "$STATIC_TARGET/etc/dhcpcd.conf"
+grep -q '^static ip_address=192.168.2.101/24$' "$STATIC_TARGET/etc/dhcpcd.conf"
+grep -q '^static routers=192.168.2.1$' "$STATIC_TARGET/etc/dhcpcd.conf"
+grep -q '^static domain_name_servers=192.168.2.1 1.1.1.1$' "$STATIC_TARGET/etc/dhcpcd.conf"
+if grep -qE '\$\{?INSTALL_|INSTALL_STATIC|INSTALL_NETWORK' "$STATIC_TARGET/etc/dhcpcd.conf"; then
+  echo "case17: unresolved network variable reached target dhcpcd.conf" >&2
+  exit 1
+fi
+
+# --- Case 18: runtime identity overrides build-time network defaults ---
+RUNTIME_TARGET="$SANDBOX/case18-target"
+mkdir -p "$RUNTIME_TARGET/etc"
+cat >"$SANDBOX/case18-identity.env" <<'EOF'
+OMNIXYS_NETWORK_INTERFACE=enp1s0
+OMNIXYS_STATIC_IP=10.20.30.40/24
+OMNIXYS_STATIC_ROUTERS=10.20.30.1
+OMNIXYS_STATIC_DNS="10.20.30.1 9.9.9.9"
+EOF
+OMNIXYS_TARGET_ROOT="$RUNTIME_TARGET" OMNIXYS_IDENTITY_ENV="$SANDBOX/case18-identity.env" "$NETWORK_LATE"
+grep -q '^interface enp1s0$' "$RUNTIME_TARGET/etc/dhcpcd.conf"
+grep -q '^static ip_address=10.20.30.40/24$' "$RUNTIME_TARGET/etc/dhcpcd.conf"
+
+# Explicitly empty runtime keys can switch static build defaults back to DHCP.
+CLEAR_TARGET="$SANDBOX/case18-clear-target"
+mkdir -p "$CLEAR_TARGET/etc"
+cat >"$SANDBOX/case18-clear-identity.env" <<'EOF'
+OMNIXYS_NETWORK_INTERFACE=
+OMNIXYS_STATIC_IP=
+OMNIXYS_STATIC_ROUTERS=
+OMNIXYS_STATIC_DNS=
+EOF
+OMNIXYS_TARGET_ROOT="$CLEAR_TARGET" OMNIXYS_IDENTITY_ENV="$SANDBOX/case18-clear-identity.env" "$NETWORK_LATE"
+[[ ! -f "$CLEAR_TARGET/etc/dhcpcd.conf" ]]
+
+# --- Case 19: DHCP leaves no Omnixys static block ---
+unset NETWORK_INTERFACE STATIC_IP STATIC_ROUTERS STATIC_DNS
+debian_render_network_late_script
+DHCP_TARGET="$SANDBOX/case19-target"
+mkdir -p "$DHCP_TARGET/etc"
+printf '# base dhcpcd configuration\n' >"$DHCP_TARGET/etc/dhcpcd.conf"
+OMNIXYS_TARGET_ROOT="$DHCP_TARGET" OMNIXYS_IDENTITY_ENV="$SANDBOX/missing-identity.env" "$NETWORK_LATE"
+grep -q '^# base dhcpcd configuration$' "$DHCP_TARGET/etc/dhcpcd.conf"
+if grep -q '^static ' "$DHCP_TARGET/etc/dhcpcd.conf"; then
+  echo "case19: DHCP unexpectedly contains static configuration" >&2
+  exit 1
+fi
+
+# --- Case 20: partial static configuration fails closed ---
+export NETWORK_INTERFACE=eth0
+debian_render_network_late_script
+set +e
+OMNIXYS_TARGET_ROOT="$SANDBOX/case20-target" OMNIXYS_IDENTITY_ENV="$SANDBOX/missing-identity.env" "$NETWORK_LATE" >/dev/null 2>&1
+rc=$?
+set -e
+[[ "$rc" -ne 0 ]]
+
+# --- Case 21: unresolved INSTALL_* expression fails closed ---
+export STATIC_IP='$INSTALL_STATIC_IP'
+export STATIC_ROUTERS=192.168.2.1
+export STATIC_DNS=192.168.2.1
+debian_render_network_late_script
+set +e
+OMNIXYS_TARGET_ROOT="$SANDBOX/case21-target" OMNIXYS_IDENTITY_ENV="$SANDBOX/missing-identity.env" "$NETWORK_LATE" >/dev/null 2>&1
+rc=$?
+set -e
+[[ "$rc" -ne 0 ]]
+
+unset NETWORK_INTERFACE STATIC_IP STATIC_ROUTERS STATIC_DNS
+debian_render_network_late_script
+shellcheck "$EARLY" "$NETWORK_LATE"
 
 echo "Identity mechanism tests passed"

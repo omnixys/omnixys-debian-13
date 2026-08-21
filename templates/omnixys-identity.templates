@@ -1,0 +1,53 @@
+Template: omnixys/identity-title
+Type: title
+Description: Omnixys identity configuration
+
+Template: omnixys/hostname
+Type: string
+Description: Hostname:
+
+Template: omnixys/domain
+Type: string
+Description: Domain:
+
+Template: omnixys/fullname
+Type: string
+Description: Full name:
+
+Template: omnixys/username
+Type: string
+Description: Username:
+
+Template: omnixys/ssh-public-key
+Type: string
+Description: SSH public key:
+
+Template: omnixys/password-status
+Type: note
+Description: Password hash status: ${STATUS}
+ The password hash itself is never displayed or logged.
+
+Template: omnixys/network-interface
+Type: string
+Description: Static network interface (leave empty for DHCP):
+
+Template: omnixys/static-ip
+Type: string
+Description: Static IPv4 address with CIDR (leave empty for DHCP):
+ Example: 192.168.2.103/24
+
+Template: omnixys/static-routers
+Type: string
+Description: Static gateway/router (leave empty for DHCP):
+ Example: 192.168.2.1
+
+Template: omnixys/static-dns
+Type: string
+Description: Static DNS servers separated by spaces (leave empty for DHCP):
+ Example: 192.168.2.1 1.1.1.1
+
+Template: omnixys/confirm
+Type: boolean
+Default: true
+Description: Apply this identity configuration?
+ ${SUMMARY}

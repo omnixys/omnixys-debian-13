@@ -10,5 +10,7 @@ grep -q "debian_detect_bootloader_files" "$BUILDER"
 grep -q "xorriso" "$BUILDER"
 grep -q "boot/grub/grub.cfg" "$BUILDER"
 grep -q "isolinux/txt.cfg" "$BUILDER"
+grep -q "omnixys-network-late.sh" "$BUILDER"
+grep -q "omnixys-identity.templates" "$BUILDER"
 
 echo "Builder remaster test passed"

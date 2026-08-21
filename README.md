@@ -174,8 +174,9 @@ identity provisioning as the production images, but with `IDENTITY_REQUIRED=fals
 identity values are applied when present, otherwise the VM build-time defaults are
 used. To provision a VM dynamically, attach a volume/USB with the `OMNIXYS_ID`
 label containing `identity.env`, or bake `./identity.env` into the ISO at build time
-(see "Runtime Identity Override"). Network configuration stays DHCP; no
-VM-specific static IP is enforced.
+(see "Runtime Identity Override"). With `IDENTITY_CONFIRM=true`, the active Debian
+Installer frontend always presents the resulting identity and network values for
+confirmation. Leaving all four network fields empty keeps DHCP enabled.
 
 ## Secure Boot Status
 
@@ -293,6 +294,7 @@ The Debian backend can optionally override identity values at install time from 
 - `IDENTITY_SOURCE=usb-env` enables lookup of `/identity.env` on `/cdrom` or on a removable medium labeled by `IDENTITY_DEVICE_LABEL` (for example `OMNIXYS_ID`).
 - `IDENTITY_REQUIRED=true` aborts installation early (non-zero exit) when the identity file is missing or unreadable. Used by the production profile.
 - `IDENTITY_REQUIRED=false` does **not** disable identity: the identity file is still consumed and overrides are applied when present. Only when it is missing does the installer continue with the build-time defaults. Used by the VM profile.
+- `IDENTITY_CONFIRM=true` displays native Debian Installer questions on every valid installation path. Values from `identity.env` take precedence; otherwise the build-time defaults are prefilled.
 - Supported variables in `identity.env` are:
 - `OMNIXYS_HOSTNAME`
 - `OMNIXYS_DOMAIN` (optional)
@@ -300,6 +302,10 @@ The Debian backend can optionally override identity values at install time from 
 - `OMNIXYS_USERNAME`
 - `OMNIXYS_SSH_PUBLIC_KEY` (optional)
 - `OMNIXYS_PASSWORD_HASH`
+- `OMNIXYS_NETWORK_INTERFACE`
+- `OMNIXYS_STATIC_IP`
+- `OMNIXYS_STATIC_ROUTERS`
+- `OMNIXYS_STATIC_DNS`
 
 ### Build-time identity embedding (`IDENTITY_EMBED`)
 
@@ -323,7 +329,11 @@ is shipped in the `-vm.iso`.
 > Embedding a baked identity is a **build-time** policy. Disabling it does **not**
 > turn off runtime identity provisioning from an attached `OMNIXYS_ID` medium.
 
-Network configuration is unaffected: the installer always uses DHCP, so no static IP is enforced for bare metal or VMs.
+Network mode is inferred from the four network values. When all are empty, the
+installed system remains on DHCP. When all are set, the late installer phase writes
+the selected interface, IPv4/CIDR, router and DNS values into
+`/etc/dhcpcd.conf`. Partial or unresolved static configurations abort installation
+instead of leaving a broken target configuration.
 
 To supply identity to a VM install, either attach a volume/USB labeled with
 `IDENTITY_DEVICE_LABEL` (for example `OMNIXYS_ID`) containing `identity.env`, or

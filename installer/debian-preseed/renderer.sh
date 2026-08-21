@@ -4,6 +4,12 @@ escape_sed_replacement() {
   printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g'
 }
 
+shell_single_quote() {
+  local escaped
+  escaped="$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+  printf "'%s'" "$escaped"
+}
+
 debian_render_template() {
   local template="$1"
   local output="$2"
@@ -107,13 +113,9 @@ debian_compose_late_command() {
   cmd+="; if [ -n \"\$INSTALL_HOSTNAME\" ]; then in-target sh -c \"printf '%s\\n' \\\"\$INSTALL_HOSTNAME\\\" > /etc/hostname\"; in-target hostnamectl set-hostname \"\$INSTALL_HOSTNAME\" >/dev/null 2>&1 || true; fi"
   cmd+="; if [ -n \"\$INSTALL_SSH_KEY\" ]; then in-target env INSTALL_USER=\"\$INSTALL_USER\" INSTALL_SSH_KEY=\"\$INSTALL_SSH_KEY\" sh -c 'mkdir -p /home/\$INSTALL_USER/.ssh; printf %s \"\$INSTALL_SSH_KEY\" > /home/\$INSTALL_USER/.ssh/authorized_keys; chown -R \$INSTALL_USER:\$INSTALL_USER /home/\$INSTALL_USER/.ssh; chmod 700 /home/\$INSTALL_USER/.ssh; chmod 600 /home/\$INSTALL_USER/.ssh/authorized_keys'; fi"
 
-  # Static IP configuration via dhcpcd – only when all four network variables are set.
-  cmd+="; INSTALL_NETWORK_IF=\"${NETWORK_INTERFACE:-}\""
-  cmd+="; INSTALL_STATIC_IP=\"${STATIC_IP:-}\""
-  cmd+="; INSTALL_STATIC_ROUTERS=\"${STATIC_ROUTERS:-}\""
-  cmd+="; INSTALL_STATIC_DNS=\"${STATIC_DNS:-}\""
-  cmd+="; if [ -r /var/lib/omnixys/identity.env ]; then . /var/lib/omnixys/identity.env; [ -n \"\${OMNIXYS_NETWORK_INTERFACE:-}\" ] && INSTALL_NETWORK_IF=\"\$OMNIXYS_NETWORK_INTERFACE\"; [ -n \"\${OMNIXYS_STATIC_IP:-}\" ] && INSTALL_STATIC_IP=\"\$OMNIXYS_STATIC_IP\"; [ -n \"\${OMNIXYS_STATIC_ROUTERS:-}\" ] && INSTALL_STATIC_ROUTERS=\"\$OMNIXYS_STATIC_ROUTERS\"; [ -n \"\${OMNIXYS_STATIC_DNS:-}\" ] && INSTALL_STATIC_DNS=\"\$OMNIXYS_STATIC_DNS\"; fi"
-  cmd+="; if [ -n \"\$INSTALL_NETWORK_IF\" ] && [ -n \"\$INSTALL_STATIC_IP\" ] && [ -n \"\$INSTALL_STATIC_ROUTERS\" ] && [ -n \"\$INSTALL_STATIC_DNS\" ]; then in-target sh -c \"printf '\\ninterface %s\\nstatic ip_address=%s\\nstatic routers=%s\\nstatic domain_name_servers=%s\\n' '\\\$INSTALL_NETWORK_IF' '\\\$INSTALL_STATIC_IP' '\\\$INSTALL_STATIC_ROUTERS' '\\\$INSTALL_STATIC_DNS' >> /etc/dhcpcd.conf\"; in-target dhcpcd -k \"\$INSTALL_NETWORK_IF\" || true; in-target dhcpcd \"\$INSTALL_NETWORK_IF\" || true; fi"
+  # Keep network rendering in a standalone installer-context script. This
+  # avoids passing values through preseed -> sh -c -> in-target -> sh -c.
+  cmd+="; sh /cdrom/omnixys-network-late.sh"
 
   if [[ "$REBOOT_AFTER_INSTALL" == "true" ]]; then
     # Reduce reboot-loops into installer by ejecting/unmounting install media before reboot.
@@ -125,6 +127,143 @@ debian_compose_late_command() {
   fi
 
   printf '%s' "$cmd"
+}
+
+debian_render_network_late_script() {
+  local out="$GENERATED_DIR/omnixys-network-late.sh"
+  local network_if static_ip static_routers static_dns
+  network_if="$(shell_single_quote "${NETWORK_INTERFACE:-}")"
+  static_ip="$(shell_single_quote "${STATIC_IP:-}")"
+  static_routers="$(shell_single_quote "${STATIC_ROUTERS:-}")"
+  static_dns="$(shell_single_quote "${STATIC_DNS:-}")"
+  cat >"$out" <<EOF
+#!/bin/sh
+set -eu
+
+TARGET_ROOT="\${OMNIXYS_TARGET_ROOT:-/target}"
+IDENTITY_ENV="\${OMNIXYS_IDENTITY_ENV:-/var/lib/omnixys/identity.env}"
+INSTALL_NETWORK_IF=$network_if
+INSTALL_STATIC_IP=$static_ip
+INSTALL_STATIC_ROUTERS=$static_routers
+INSTALL_STATIC_DNS=$static_dns
+
+log_info() {
+  printf 'omnixys-network: %s\\n' "\$*" >&2
+}
+
+fail() {
+  log_info "ERROR: \$*"
+  exit 1
+}
+
+validate_ipv4() {
+  printf '%s\\n' "\$1" | awk -F. '
+    NF != 4 { exit 1 }
+    {
+      for (i = 1; i <= 4; i++) {
+        if (\$i !~ /^[0-9]+\$/ || \$i < 0 || \$i > 255) exit 1
+      }
+    }
+  '
+}
+
+validate_ipv4_list() {
+  [ -n "\$1" ] || return 1
+  for address in \$1; do
+    validate_ipv4 "\$address" || return 1
+  done
+}
+
+validate_static_ip() {
+  address="\${1%/*}"
+  prefix="\${1#*/}"
+  [ "\$address" != "\$1" ] || return 1
+  validate_ipv4 "\$address" || return 1
+  case "\$prefix" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "\$prefix" -le 32 ]
+}
+
+if [ -r "\$IDENTITY_ENV" ]; then
+  # Runtime identity is trusted installer input and overrides build defaults.
+  # shellcheck disable=SC1090
+  . "\$IDENTITY_ENV"
+  [ "\${OMNIXYS_NETWORK_INTERFACE+x}" != "x" ] || INSTALL_NETWORK_IF="\$OMNIXYS_NETWORK_INTERFACE"
+  [ "\${OMNIXYS_STATIC_IP+x}" != "x" ] || INSTALL_STATIC_IP="\$OMNIXYS_STATIC_IP"
+  [ "\${OMNIXYS_STATIC_ROUTERS+x}" != "x" ] || INSTALL_STATIC_ROUTERS="\$OMNIXYS_STATIC_ROUTERS"
+  [ "\${OMNIXYS_STATIC_DNS+x}" != "x" ] || INSTALL_STATIC_DNS="\$OMNIXYS_STATIC_DNS"
+fi
+
+network_value_count=0
+for value in "\$INSTALL_NETWORK_IF" "\$INSTALL_STATIC_IP" "\$INSTALL_STATIC_ROUTERS" "\$INSTALL_STATIC_DNS"; do
+  [ -z "\$value" ] || network_value_count=\$((network_value_count + 1))
+  # shellcheck disable=SC2016
+  case "\$value" in
+    *'\$INSTALL_'*|*'\${INSTALL_'*) fail 'unresolved INSTALL_* expression in network configuration' ;;
+  esac
+done
+
+config="\$TARGET_ROOT/etc/dhcpcd.conf"
+begin_marker='# BEGIN OMNIXYS STATIC NETWORK'
+end_marker='# END OMNIXYS STATIC NETWORK'
+mkdir -p "\$TARGET_ROOT/etc"
+tmp="\${config}.omnixys.tmp.\$\$"
+trap 'rm -f "\$tmp"' EXIT HUP INT TERM
+
+if [ -f "\$config" ]; then
+  awk -v begin="\$begin_marker" -v end="\$end_marker" '
+    \$0 == begin { managed = 1; next }
+    \$0 == end { managed = 0; next }
+    !managed { print }
+  ' "\$config" >"\$tmp"
+else
+  : >"\$tmp"
+fi
+
+if grep -Eq '\\$\\{?INSTALL_|INSTALL_STATIC|INSTALL_NETWORK' "\$tmp"; then
+  fail 'unresolved network variable already present in target configuration'
+fi
+
+case "\$network_value_count" in
+  0)
+    if [ -f "\$config" ]; then
+      cat "\$tmp" >"\$config"
+    fi
+    rm -f "\$tmp"
+    trap - EXIT HUP INT TERM
+    log_info 'DHCP selected; no static configuration written'
+    exit 0
+    ;;
+  4) ;;
+  *) fail 'static network configuration requires interface, IP/CIDR, router and DNS' ;;
+esac
+
+printf '%s\\n' "\$INSTALL_NETWORK_IF" | grep -Eq '^[[:alnum:]_.:-]{1,15}\$' || fail 'invalid network interface'
+validate_static_ip "\$INSTALL_STATIC_IP" || fail 'invalid static IPv4/CIDR'
+validate_ipv4_list "\$INSTALL_STATIC_ROUTERS" || fail 'invalid static router list'
+validate_ipv4_list "\$INSTALL_STATIC_DNS" || fail 'invalid static DNS list'
+
+{
+  printf '\\n%s\\n' "\$begin_marker"
+  printf 'interface %s\\n' "\$INSTALL_NETWORK_IF"
+  printf 'static ip_address=%s\\n' "\$INSTALL_STATIC_IP"
+  printf 'static routers=%s\\n' "\$INSTALL_STATIC_ROUTERS"
+  printf 'static domain_name_servers=%s\\n' "\$INSTALL_STATIC_DNS"
+  printf '%s\\n' "\$end_marker"
+} >>"\$tmp"
+
+if grep -Eq '\\$\\{?INSTALL_|INSTALL_STATIC|INSTALL_NETWORK' "\$tmp"; then
+  fail 'unresolved network variable remained in target configuration'
+fi
+
+cat "\$tmp" >"\$config"
+chmod 0644 "\$config"
+rm -f "\$tmp"
+trap - EXIT HUP INT TERM
+log_info 'static dhcpcd configuration written and validated'
+EOF
+  chmod +x "$out"
 }
 
 debian_compose_pkgsel_upgrade() {
@@ -336,9 +475,20 @@ EOF
 
 debian_render_early_script() {
   local out="$GENERATED_DIR/omnixys-early.sh"
+  local identity_hostname identity_domain identity_fullname identity_username identity_ssh_key identity_password_hash
+  local identity_network_if identity_static_ip identity_static_routers identity_static_dns
+  identity_hostname="$(shell_single_quote "$HOSTNAME")"
+  identity_domain="$(shell_single_quote "${DOMAIN:-}")"
+  identity_fullname="$(shell_single_quote "$FULLNAME")"
+  identity_username="$(shell_single_quote "$USERNAME")"
+  identity_ssh_key="$(shell_single_quote "${SSH_PUBLIC_KEY:-}")"
+  identity_password_hash="$(shell_single_quote "$PASSWORD_HASH")"
+  identity_network_if="$(shell_single_quote "${NETWORK_INTERFACE:-}")"
+  identity_static_ip="$(shell_single_quote "${STATIC_IP:-}")"
+  identity_static_routers="$(shell_single_quote "${STATIC_ROUTERS:-}")"
+  identity_static_dns="$(shell_single_quote "${STATIC_DNS:-}")"
   cat >"$out" <<EOF
 #!/bin/sh
-set -x
 mkdir -p /var/log/installer
 exec >/var/log/installer/omnixys-early.log 2>&1
 
@@ -352,9 +502,20 @@ IDENTITY_CONFIRM="${IDENTITY_CONFIRM:-true}"
 IDENTITY_DEVICE_RETRIES=5
 IDENTITY_DEVICE_RETRY_DELAY=1
 
+OMNIXYS_HOSTNAME=$identity_hostname
+OMNIXYS_DOMAIN=$identity_domain
+OMNIXYS_FULLNAME=$identity_fullname
+OMNIXYS_USERNAME=$identity_username
+OMNIXYS_SSH_PUBLIC_KEY=$identity_ssh_key
+# shellcheck disable=SC2016
+OMNIXYS_PASSWORD_HASH=$identity_password_hash
+OMNIXYS_NETWORK_INTERFACE=$identity_network_if
+OMNIXYS_STATIC_IP=$identity_static_ip
+OMNIXYS_STATIC_ROUTERS=$identity_static_routers
+OMNIXYS_STATIC_DNS=$identity_static_dns
+
 log_info() {
-  echo "omnixys: \$*"
-  echo "omnixys: \$*" >>/var/log/installer/omnixys-early.log 2>/dev/null || true
+  printf 'omnixys: %s\\n' "\$*" >>/var/log/installer/omnixys-early.log 2>/dev/null || true
 }
 
 run_disk_step() {
@@ -436,7 +597,7 @@ detect_identity_device() {
 # attempt and try to load the module before giving up. Only tools shipped in
 # the installer initramfs are used (mount, lsmod, modprobe, grep).
 mount_identity_device() {
-  local err
+  err=""
 
   if err="\$(mount -o ro "\$IDENTITY_DEVICE" /media/omnixys-identity 2>&1)"; then
     return 0
@@ -471,21 +632,21 @@ mount_identity_device() {
 run_identity_confirm_dialog() {
   [ "\$IDENTITY_CONFIRM" = "true" ] || return 0
 
-  local UI_CMD=""
-  if command -v whiptail >/dev/null 2>&1; then
-    UI_CMD="whiptail"
-  elif command -v dialog >/dev/null 2>&1; then
-    UI_CMD="dialog"
-  else
-    log_info "neither whiptail nor dialog available; skipping identity confirm dialog"
-    return 0
+  if [ ! -r /usr/share/debconf/confmodule ]; then
+    log_info "debconf confmodule unavailable; cannot display required identity dialog"
+    return 1
+  fi
+  if [ ! -r /cdrom/omnixys-identity.templates ]; then
+    log_info "identity debconf templates unavailable; cannot display required identity dialog"
+    return 1
   fi
 
-  log_info "identity confirm dialog starting (UI: \$UI_CMD)"
-
-  local TITLE="Omnixys – Identity Configuration"
-  local W=60
-  local H=20
+  # Use the active Debian Installer frontend inherited from preseed_command.
+  # shellcheck disable=SC1091
+  . /usr/share/debconf/confmodule
+  db_x_loadtemplatefile /cdrom/omnixys-identity.templates omnixys || return 1
+  db_settitle omnixys/identity-title || true
+  log_info "identity confirm dialog starting (native debconf frontend)"
 
   _SAVED_HOSTNAME="\${OMNIXYS_HOSTNAME:-}"
   _SAVED_DOMAIN="\${OMNIXYS_DOMAIN:-}"
@@ -497,78 +658,61 @@ run_identity_confirm_dialog() {
   _SAVED_ROUTES="\${OMNIXYS_STATIC_ROUTERS:-}"
   _SAVED_DNS="\${OMNIXYS_STATIC_DNS:-}"
 
-  prompt_value() {
-    local label="\$1"
-    local var_name="\$2"
-    local current
-    case "\$var_name" in
-      OMNIXYS_HOSTNAME) current="\${OMNIXYS_HOSTNAME:-}" ;;
-      OMNIXYS_DOMAIN) current="\${OMNIXYS_DOMAIN:-}" ;;
-      OMNIXYS_FULLNAME) current="\${OMNIXYS_FULLNAME:-}" ;;
-      OMNIXYS_USERNAME) current="\${OMNIXYS_USERNAME:-}" ;;
-      OMNIXYS_SSH_PUBLIC_KEY) current="\${OMNIXYS_SSH_PUBLIC_KEY:-}" ;;
-      OMNIXYS_NETWORK_INTERFACE) current="\${OMNIXYS_NETWORK_INTERFACE:-}" ;;
-      OMNIXYS_STATIC_IP) current="\${OMNIXYS_STATIC_IP:-}" ;;
-      OMNIXYS_STATIC_ROUTERS) current="\${OMNIXYS_STATIC_ROUTERS:-}" ;;
-      OMNIXYS_STATIC_DNS) current="\${OMNIXYS_STATIC_DNS:-}" ;;
-      *) current="" ;;
-    esac
-    local result
-
-    result="\$(
-      \$UI_CMD --inputbox \"\$label\" \$H \$W \"\$current\" 2>&1
-    )"
-    if [ \$? -eq 0 ]; then
-      printf '%s' \"\$result\"
-    else
-      printf '%s' \"\$current\"
-    fi
+  ask_identity_value() {
+    question="\$1"
+    current="\$2"
+    db_set "\$question" "\$current" || return 1
+    db_fset "\$question" seen false || true
+    db_input critical "\$question" || true
+    db_go || return 1
+    db_get "\$question" || return 1
+    ANSWER="\$RET"
   }
 
-  show_password_status() {
-    local label="\$1"
-    local is_set="\$2"
-    local status="[nicht gesetzt]"
-    if [ \"\$is_set\" = \"true\" ]; then
-      status=\"[gesetzt]\"
-    fi
-    \$UI_CMD --msgbox \"\$label\\n\\nStatus: \$status\" \$H \$W 2>&1
-  }
+  ask_identity_value omnixys/hostname "\${OMNIXYS_HOSTNAME:-}" || return 1
+  OMNIXYS_HOSTNAME="\$ANSWER"
+  ask_identity_value omnixys/domain "\${OMNIXYS_DOMAIN:-}" || return 1
+  OMNIXYS_DOMAIN="\$ANSWER"
+  ask_identity_value omnixys/fullname "\${OMNIXYS_FULLNAME:-}" || return 1
+  OMNIXYS_FULLNAME="\$ANSWER"
+  ask_identity_value omnixys/username "\${OMNIXYS_USERNAME:-}" || return 1
+  OMNIXYS_USERNAME="\$ANSWER"
 
-  OMNIXYS_HOSTNAME="\$(prompt_value 'Hostname:' 'OMNIXYS_HOSTNAME')"
-  OMNIXYS_DOMAIN="\$(prompt_value 'Domain:' 'OMNIXYS_DOMAIN')"
-  OMNIXYS_FULLNAME="\$(prompt_value 'Vollständiger Name:' 'OMNIXYS_FULLNAME')"
-  OMNIXYS_USERNAME="\$(prompt_value 'Benutzername:' 'OMNIXYS_USERNAME')"
+  ask_identity_value omnixys/ssh-public-key "\${OMNIXYS_SSH_PUBLIC_KEY:-}" || return 1
+  OMNIXYS_SSH_PUBLIC_KEY="\$ANSWER"
 
-  if [ -n \"\${OMNIXYS_SSH_PUBLIC_KEY:-}\" ]; then
-    OMNIXYS_SSH_PUBLIC_KEY="\$(prompt_value 'SSH Public Key:' 'OMNIXYS_SSH_PUBLIC_KEY')"
+  pw_set="nicht gesetzt"
+  if [ -n "\${OMNIXYS_PASSWORD_HASH:-}" ]; then
+    pw_set="gesetzt"
+  fi
+  db_subst omnixys/password-status STATUS "\$pw_set" || true
+  db_fset omnixys/password-status seen false || true
+  db_input critical omnixys/password-status || true
+  db_go || return 1
+
+  ask_identity_value omnixys/network-interface "\${OMNIXYS_NETWORK_INTERFACE:-}" || return 1
+  OMNIXYS_NETWORK_INTERFACE="\$ANSWER"
+  ask_identity_value omnixys/static-ip "\${OMNIXYS_STATIC_IP:-}" || return 1
+  OMNIXYS_STATIC_IP="\$ANSWER"
+  ask_identity_value omnixys/static-routers "\${OMNIXYS_STATIC_ROUTERS:-}" || return 1
+  OMNIXYS_STATIC_ROUTERS="\$ANSWER"
+  ask_identity_value omnixys/static-dns "\${OMNIXYS_STATIC_DNS:-}" || return 1
+  OMNIXYS_STATIC_DNS="\$ANSWER"
+
+  SUMMARY="Hostname: \$OMNIXYS_HOSTNAME; Domain: \$OMNIXYS_DOMAIN; Name: \$OMNIXYS_FULLNAME; Benutzer: \$OMNIXYS_USERNAME; Passwort: \$pw_set."
+  if [ -n "\$OMNIXYS_NETWORK_INTERFACE" ]; then
+    SUMMARY="\$SUMMARY Netzwerk: \$OMNIXYS_NETWORK_INTERFACE, \$OMNIXYS_STATIC_IP, Router \$OMNIXYS_STATIC_ROUTERS, DNS \$OMNIXYS_STATIC_DNS."
+  else
+    SUMMARY="\$SUMMARY Netzwerk: DHCP."
   fi
 
-  local pw_set=\"false\"
-  if [ -n \"\${OMNIXYS_PASSWORD_HASH:-}\" ]; then
-    pw_set=\"true\"
-  fi
-  show_password_status 'Passwort-Hash:' \"\$pw_set\"
-
-  OMNIXYS_NETWORK_INTERFACE="\$(prompt_value 'Netzwerk-Interface (z.B. eno1):' 'OMNIXYS_NETWORK_INTERFACE')"
-  OMNIXYS_STATIC_IP="\$(prompt_value 'Statische IP (z.B. 192.168.2.101/24):' 'OMNIXYS_STATIC_IP')"
-  OMNIXYS_STATIC_ROUTERS="\$(prompt_value 'Gateway/Router (z.B. 192.168.2.1):' 'OMNIXYS_STATIC_ROUTERS')"
-  OMNIXYS_STATIC_DNS="\$(prompt_value 'DNS Server (z.B. 192.168.2.1):' 'OMNIXYS_STATIC_DNS')"
-
-  SUMMARY="Hostname: \$OMNIXYS_HOSTNAME\\n"
-  SUMMARY="\${SUMMARY}Domain: \$OMNIXYS_DOMAIN\\n"
-  SUMMARY="\${SUMMARY}Name: \$OMNIXYS_FULLNAME\\n"
-  SUMMARY="\${SUMMARY}Benutzer: \$OMNIXYS_USERNAME\\n"
-  SUMMARY="\${SUMMARY}Passwort: \$pw_set\\n"
-  if [ -n \"\$OMNIXYS_NETWORK_INTERFACE\" ]; then
-    SUMMARY="\${SUMMARY}\\nNetzwerk:\\n"
-    SUMMARY="\${SUMMARY}  Interface: \$OMNIXYS_NETWORK_INTERFACE\\n"
-    SUMMARY="\${SUMMARY}  IP: \$OMNIXYS_STATIC_IP\\n"
-    SUMMARY="\${SUMMARY}  Router: \$OMNIXYS_STATIC_ROUTERS\\n"
-    SUMMARY="\${SUMMARY}  DNS: \$OMNIXYS_STATIC_DNS\\n"
-  fi
-
-  if \$UI_CMD --yesno \"\$SUMMARY\\n\\nFortfahren?\" \$H \$W 2>&1; then
+  db_subst omnixys/confirm SUMMARY "\$SUMMARY" || true
+  db_set omnixys/confirm true || return 1
+  db_fset omnixys/confirm seen false || true
+  db_input critical omnixys/confirm || true
+  db_go || return 1
+  db_get omnixys/confirm || return 1
+  if [ "\$RET" = "true" ]; then
     log_info "identity confirm dialog: confirmed"
   else
     OMNIXYS_HOSTNAME="\$_SAVED_HOSTNAME"
@@ -584,29 +728,47 @@ run_identity_confirm_dialog() {
     return 0
   fi
 
-  cat > /var/lib/omnixys/identity.env <<IDEOF
-OMNIXYS_HOSTNAME=\$OMNIXYS_HOSTNAME
-OMNIXYS_DOMAIN=\$OMNIXYS_DOMAIN
-OMNIXYS_FULLNAME=\"\$OMNIXYS_FULLNAME\"
-OMNIXYS_USERNAME=\$OMNIXYS_USERNAME
-OMNIXYS_SSH_PUBLIC_KEY=\"\${OMNIXYS_SSH_PUBLIC_KEY:-}\"
-OMNIXYS_PASSWORD_HASH='\${OMNIXYS_PASSWORD_HASH:-}'
-OMNIXYS_NETWORK_INTERFACE=\$OMNIXYS_NETWORK_INTERFACE
-OMNIXYS_STATIC_IP=\$OMNIXYS_STATIC_IP
-OMNIXYS_STATIC_ROUTERS=\$OMNIXYS_STATIC_ROUTERS
-OMNIXYS_STATIC_DNS=\$OMNIXYS_STATIC_DNS
-IDEOF
-
-  . /var/lib/omnixys/identity.env
+  shell_quote_value() {
+    printf '%s' "\$1" | sed "s/'/'\\\\\\\\''/g"
+  }
+  {
+    printf "OMNIXYS_HOSTNAME='%s'\\n" "\$(shell_quote_value "\$OMNIXYS_HOSTNAME")"
+    printf "OMNIXYS_DOMAIN='%s'\\n" "\$(shell_quote_value "\$OMNIXYS_DOMAIN")"
+    printf "OMNIXYS_FULLNAME='%s'\\n" "\$(shell_quote_value "\$OMNIXYS_FULLNAME")"
+    printf "OMNIXYS_USERNAME='%s'\\n" "\$(shell_quote_value "\$OMNIXYS_USERNAME")"
+    printf "OMNIXYS_SSH_PUBLIC_KEY='%s'\\n" "\$(shell_quote_value "\${OMNIXYS_SSH_PUBLIC_KEY:-}")"
+    printf "OMNIXYS_PASSWORD_HASH='%s'\\n" "\$(shell_quote_value "\${OMNIXYS_PASSWORD_HASH:-}")"
+    printf "OMNIXYS_NETWORK_INTERFACE='%s'\\n" "\$(shell_quote_value "\$OMNIXYS_NETWORK_INTERFACE")"
+    printf "OMNIXYS_STATIC_IP='%s'\\n" "\$(shell_quote_value "\$OMNIXYS_STATIC_IP")"
+    printf "OMNIXYS_STATIC_ROUTERS='%s'\\n" "\$(shell_quote_value "\$OMNIXYS_STATIC_ROUTERS")"
+    printf "OMNIXYS_STATIC_DNS='%s'\\n" "\$(shell_quote_value "\$OMNIXYS_STATIC_DNS")"
+  } >/var/lib/omnixys/identity.env
+  chmod 0600 /var/lib/omnixys/identity.env
   log_info "identity confirm dialog: values saved"
 }
 
 run_identity_step() {
-  [ "\$IDENTITY_SOURCE" = "usb-env" ] || return 0
+  mkdir -p /var/lib/omnixys /media/omnixys-identity
+  if [ "\$IDENTITY_SOURCE" != "usb-env" ]; then
+    log_info "identity source selected: none; using build-time defaults"
+    run_identity_confirm_dialog || {
+      log_info "identity confirmation failed; aborting installation"
+      exit 1
+    }
+    if [ "\$IDENTITY_CONFIRM" = "true" ]; then
+      [ -n "\${OMNIXYS_HOSTNAME:-}" ] && debconf-set netcfg/get_hostname "\$OMNIXYS_HOSTNAME" || true
+      [ -n "\${OMNIXYS_DOMAIN:-}" ] && debconf-set netcfg/get_domain "\$OMNIXYS_DOMAIN" || true
+      [ -n "\${OMNIXYS_FULLNAME:-}" ] && debconf-set passwd/user-fullname "\$OMNIXYS_FULLNAME" || true
+      [ -n "\${OMNIXYS_USERNAME:-}" ] && debconf-set passwd/username "\$OMNIXYS_USERNAME" || true
+      [ -n "\${OMNIXYS_PASSWORD_HASH:-}" ] && debconf-set passwd/user-password-crypted "\$OMNIXYS_PASSWORD_HASH" || true
+    fi
+    return 0
+  fi
 
   log_info "identity source selected: usb-env"
   IDENTITY_FILE=""
   IDENTITY_MOUNTED="false"
+  IDENTITY_LOADED="false"
   mkdir -p /var/lib/omnixys /media/omnixys-identity
 
   IDENTITY_DEVICE=""
@@ -637,25 +799,59 @@ run_identity_step() {
       log_info "required identity file not found (IDENTITY_SOURCE=usb-env); aborting installation"
       exit 1
     fi
-    log_info "identity file not found; continuing with build-time defaults"
-  else
-    if ! cp "\$IDENTITY_FILE" /var/lib/omnixys/identity.env 2>>/var/log/installer/omnixys-early.log; then
-      log_info "FAILED to copy identity file from \$IDENTITY_FILE"
-      IDENTITY_FILE=""
-    else
-      {
-        echo "--- identity sourcing start ---"
-        . /var/lib/omnixys/identity.env
-        echo "--- identity sourcing done, OMNIXYS_HOSTNAME=\${OMNIXYS_HOSTNAME:-<unset>} ---"
-      } >>/var/log/installer/omnixys-early.log 2>&1
+    log_info "identity file not found; prompting for interactive input"
 
-      run_identity_confirm_dialog
+    run_identity_confirm_dialog || {
+      log_info "identity confirmation failed; aborting installation"
+      exit 1
+    }
 
-      [ -n "\${OMNIXYS_HOSTNAME:-}" ] && { debconf-set netcfg/get_hostname "\$OMNIXYS_HOSTNAME" && log_info "hostname override applied: \$OMNIXYS_HOSTNAME"; } || true
+    if [ "\$IDENTITY_CONFIRM" = "true" ]; then
+      [ -n "\${OMNIXYS_HOSTNAME:-}" ] && { debconf-set netcfg/get_hostname "\$OMNIXYS_HOSTNAME" && log_info "hostname configuration applied"; } || true
       [ -n "\${OMNIXYS_DOMAIN:-}" ] && debconf-set netcfg/get_domain "\$OMNIXYS_DOMAIN" || true
       [ -n "\${OMNIXYS_FULLNAME:-}" ] && debconf-set passwd/user-fullname "\$OMNIXYS_FULLNAME" || true
       [ -n "\${OMNIXYS_USERNAME:-}" ] && debconf-set passwd/username "\$OMNIXYS_USERNAME" || true
       [ -n "\${OMNIXYS_PASSWORD_HASH:-}" ] && debconf-set passwd/user-password-crypted "\$OMNIXYS_PASSWORD_HASH" || true
+    fi
+  else
+    if ! cp "\$IDENTITY_FILE" /var/lib/omnixys/identity.env 2>>/var/log/installer/omnixys-early.log; then
+      log_info "FAILED to copy identity file from \$IDENTITY_FILE"
+      IDENTITY_FILE=""
+      [ "\$IDENTITY_REQUIRED" != "true" ] || exit 1
+      run_identity_confirm_dialog || {
+        log_info "identity confirmation failed; aborting installation"
+        exit 1
+      }
+      if [ "\$IDENTITY_CONFIRM" = "true" ]; then
+        [ -n "\${OMNIXYS_HOSTNAME:-}" ] && debconf-set netcfg/get_hostname "\$OMNIXYS_HOSTNAME" || true
+        [ -n "\${OMNIXYS_DOMAIN:-}" ] && debconf-set netcfg/get_domain "\$OMNIXYS_DOMAIN" || true
+        [ -n "\${OMNIXYS_FULLNAME:-}" ] && debconf-set passwd/user-fullname "\$OMNIXYS_FULLNAME" || true
+        [ -n "\${OMNIXYS_USERNAME:-}" ] && debconf-set passwd/username "\$OMNIXYS_USERNAME" || true
+        [ -n "\${OMNIXYS_PASSWORD_HASH:-}" ] && debconf-set passwd/user-password-crypted "\$OMNIXYS_PASSWORD_HASH" || true
+      fi
+    else
+      log_info "identity sourcing start"
+      # shellcheck disable=SC1091
+      if ! . /var/lib/omnixys/identity.env 2>>/var/log/installer/omnixys-early.log; then
+        log_info "identity sourcing failed"
+        [ "\$IDENTITY_REQUIRED" != "true" ] || exit 1
+      else
+        IDENTITY_LOADED="true"
+        log_info "identity sourcing completed"
+      fi
+
+      run_identity_confirm_dialog || {
+        log_info "identity confirmation failed; aborting installation"
+        exit 1
+      }
+
+      if [ "\$IDENTITY_LOADED" = "true" ] || [ "\$IDENTITY_CONFIRM" = "true" ]; then
+        [ -n "\${OMNIXYS_HOSTNAME:-}" ] && { debconf-set netcfg/get_hostname "\$OMNIXYS_HOSTNAME" && log_info "hostname configuration applied"; } || true
+        [ -n "\${OMNIXYS_DOMAIN:-}" ] && debconf-set netcfg/get_domain "\$OMNIXYS_DOMAIN" || true
+        [ -n "\${OMNIXYS_FULLNAME:-}" ] && debconf-set passwd/user-fullname "\$OMNIXYS_FULLNAME" || true
+        [ -n "\${OMNIXYS_USERNAME:-}" ] && debconf-set passwd/username "\$OMNIXYS_USERNAME" || true
+        [ -n "\${OMNIXYS_PASSWORD_HASH:-}" ] && debconf-set passwd/user-password-crypted "\$OMNIXYS_PASSWORD_HASH" || true
+      fi
     fi
   fi
 
@@ -729,6 +925,7 @@ debian_render() {
   debian_partition_mode_values
   debian_resolve_target_disk
   debian_render_early_script
+  debian_render_network_late_script
   if [[ "$TARGET_DISK_MODE" == "auto" ]]; then
     debian_render_disk_detect_script
   fi

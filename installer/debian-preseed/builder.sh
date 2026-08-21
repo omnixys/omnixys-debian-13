@@ -291,6 +291,11 @@ debian_package() {
     run_cmd cp "$GENERATED_DIR/omnixys-disk-detect.sh" "$ISO_TREE_DIR/omnixys-disk-detect.sh"
     run_cmd chmod 0755 "$ISO_TREE_DIR/omnixys-disk-detect.sh"
   fi
+  if [[ -f "$GENERATED_DIR/omnixys-network-late.sh" ]]; then
+    run_cmd cp "$GENERATED_DIR/omnixys-network-late.sh" "$ISO_TREE_DIR/omnixys-network-late.sh"
+    run_cmd chmod 0755 "$ISO_TREE_DIR/omnixys-network-late.sh"
+  fi
+  run_cmd cp "$ROOT_DIR/templates/omnixys-identity.templates" "$ISO_TREE_DIR/omnixys-identity.templates"
   if debian_identity_embed_enabled && [[ -f "$ROOT_DIR/identity.env" ]]; then
     step "Embedding runtime identity into ISO (IDENTITY_EMBED=true)"
     run_cmd cp "$ROOT_DIR/identity.env" "$ISO_TREE_DIR/identity.env"

@@ -87,6 +87,55 @@ debian_validate_ssh_policy() {
   esac
 }
 
+debian_validate_ipv4() {
+  local value="$1"
+  local IFS=.
+  local -a octets=()
+  local octet
+  read -r -a octets <<<"$value"
+  [[ ${#octets[@]} -eq 4 ]] || return 1
+  for octet in "${octets[@]}"; do
+    [[ "$octet" =~ ^[0-9]+$ ]] || return 1
+    ((10#$octet <= 255)) || return 1
+  done
+}
+
+debian_validate_ipv4_list() {
+  local value="$1"
+  local address
+  [[ -n "$value" ]] || return 1
+  for address in $value; do
+    debian_validate_ipv4 "$address" || return 1
+  done
+}
+
+debian_validate_network_config() {
+  NETWORK_INTERFACE="${NETWORK_INTERFACE:-}"
+  STATIC_IP="${STATIC_IP:-}"
+  STATIC_ROUTERS="${STATIC_ROUTERS:-}"
+  STATIC_DNS="${STATIC_DNS:-}"
+
+  local configured=0
+  local value
+  for value in "$NETWORK_INTERFACE" "$STATIC_IP" "$STATIC_ROUTERS" "$STATIC_DNS"; do
+    [[ -z "$value" ]] || ((configured += 1))
+  done
+
+  [[ $configured -eq 0 ]] && return 0
+  [[ $configured -eq 4 ]] || die "Static network configuration requires NETWORK_INTERFACE, STATIC_IP, STATIC_ROUTERS and STATIC_DNS"
+  [[ "$NETWORK_INTERFACE" =~ ^[[:alnum:]_.:-]{1,15}$ ]] || die "Invalid NETWORK_INTERFACE: $NETWORK_INTERFACE"
+
+  local address="${STATIC_IP%/*}"
+  local prefix="${STATIC_IP#*/}"
+  [[ "$address" != "$STATIC_IP" ]] || die "STATIC_IP must include an IPv4 CIDR prefix: $STATIC_IP"
+  debian_validate_ipv4 "$address" || die "Invalid STATIC_IP address: $STATIC_IP"
+  if [[ ! "$prefix" =~ ^[0-9]+$ ]] || ((10#$prefix > 32)); then
+    die "Invalid STATIC_IP prefix: $STATIC_IP"
+  fi
+  debian_validate_ipv4_list "$STATIC_ROUTERS" || die "Invalid STATIC_ROUTERS: $STATIC_ROUTERS"
+  debian_validate_ipv4_list "$STATIC_DNS" || die "Invalid STATIC_DNS: $STATIC_DNS"
+}
+
 debian_validate_target_disk() {
   [[ "$TARGET_DISK" =~ ^/dev/ ]] || die "TARGET_DISK must start with /dev/: $TARGET_DISK"
   if [[ "$DRY_RUN" != "true" ]] && [[ -d /dev ]] && [[ ! -e "$TARGET_DISK" ]]; then
@@ -228,6 +277,7 @@ debian_validate() {
   debian_validate_target_disk_config
   debian_validate_mirror
   debian_validate_ssh_policy
+  debian_validate_network_config
 
   if [[ "$PARTITION_MODE" == "custom" ]]; then
     die "PARTITION_MODE=custom is reserved for post-v1.0 extension; use erase or lvm"
