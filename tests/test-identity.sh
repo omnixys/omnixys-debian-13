@@ -84,6 +84,15 @@ PRESEED="$GENERATED_DIR/preseed.cfg"
 EARLY="$GENERATED_DIR/omnixys-early.sh"
 NETWORK_LATE="$GENERATED_DIR/omnixys-network-late.sh"
 
+if command -v dash >/dev/null 2>&1; then
+  dash -n "$EARLY" "$NETWORK_LATE"
+else
+  sh -n "$EARLY" "$NETWORK_LATE"
+fi
+if command -v shellcheck >/dev/null 2>&1; then
+  shellcheck "$EARLY" "$NETWORK_LATE"
+fi
+
 # --- Rendered preseed carries build-time defaults that the identity
 # --- mechanism overrides at runtime (HOSTNAME, DOMAIN, FULLNAME,
 # --- USERNAME, PASSWORD_HASH via early debconf-set; SSH key, username,
@@ -108,6 +117,10 @@ grep -q 'OMNIXYS_HOSTNAME' "$PRESEED"
 grep -q 'identity is required but missing' "$EARLY" && { echo "old abort message still present"; exit 1; }
 grep -q 'required identity file not found (IDENTITY_SOURCE=usb-env); aborting installation' "$EARLY"
 grep -q 'prompting for interactive input' "$EARLY"
+if grep -Eq 'read[[:space:]].*-[^[:space:]]*t' "$EARLY"; then
+  echo "generated early script uses non-POSIX read timeout" >&2
+  exit 1
+fi
 
 grep -q 'debian_compose_identity_early_command' "$RENDERER" && { echo "dead duplicate function still present"; exit 1; }
 
@@ -147,7 +160,11 @@ reset_sandbox() {
 run_early() {
   local script="$1"
   local rc=0
-  "$script" >"$SANDBOX/run.out" 2>&1 || rc=$?
+  if command -v dash >/dev/null 2>&1; then
+    dash "$script" >"$SANDBOX/run.out" 2>&1 || rc=$?
+  else
+    "$script" >"$SANDBOX/run.out" 2>&1 || rc=$?
+  fi
   [[ "$rc" -eq 0 ]] || return "$rc"
 }
 

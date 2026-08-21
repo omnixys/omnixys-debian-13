@@ -843,9 +843,30 @@ run_identity_confirm_dialog() {
     fi
 
     reply=""
-    # Debian Installer uses BusyBox ash, whose read supports a timeout.
-    # shellcheck disable=SC3045
-    if IFS= read -r -t "\$IDENTITY_CONFIRM_TIMEOUT" reply <"\$IDENTITY_CONSOLE_INPUT"; then
+    reply_file="/var/lib/omnixys/.identity-reply.\$\$"
+    rm -f "\$reply_file"
+    (
+      if IFS= read -r console_reply <"\$IDENTITY_CONSOLE_INPUT"; then
+        umask 077
+        printf '%s\n' "\$console_reply" >"\$reply_file"
+      fi
+    ) &
+    reader_pid=\$!
+    elapsed=0
+    while kill -0 "\$reader_pid" 2>/dev/null && [ "\$elapsed" -lt "\$IDENTITY_CONFIRM_TIMEOUT" ]; do
+      sleep 1
+      elapsed=\$((elapsed + 1))
+    done
+
+    if kill -0 "\$reader_pid" 2>/dev/null; then
+      kill "\$reader_pid" 2>/dev/null || true
+      wait "\$reader_pid" 2>/dev/null || true
+    else
+      wait "\$reader_pid" 2>/dev/null || true
+    fi
+
+    if [ -r "\$reply_file" ] && IFS= read -r reply <"\$reply_file"; then
+      rm -f "\$reply_file"
       case "\$reply" in
         e|E|edit|EDIT|bearbeiten|BEARBEITEN)
           log_info "identity edit requested from installer console"
@@ -857,6 +878,7 @@ run_identity_confirm_dialog() {
           ;;
       esac
     fi
+    rm -f "\$reply_file"
 
     log_info "identity values automatically confirmed after 5 seconds without input"
     return 1
@@ -1013,13 +1035,18 @@ run_identity_step() {
       fi
     else
       log_info "identity sourcing start"
-      # shellcheck disable=SC1091
-      if ! . /var/lib/omnixys/identity.env 2>>/var/log/installer/omnixys-early.log; then
+      if ! sh -n /var/lib/omnixys/identity.env 2>>/var/log/installer/omnixys-early.log; then
         log_info "identity sourcing failed"
         [ "\$IDENTITY_REQUIRED" != "true" ] || exit 1
       else
-        IDENTITY_LOADED="true"
-        log_info "identity sourcing completed"
+        # shellcheck disable=SC1091
+        if ! . /var/lib/omnixys/identity.env 2>>/var/log/installer/omnixys-early.log; then
+          log_info "identity sourcing failed"
+          [ "\$IDENTITY_REQUIRED" != "true" ] || exit 1
+        else
+          IDENTITY_LOADED="true"
+          log_info "identity sourcing completed"
+        fi
       fi
 
       run_identity_confirm_dialog || {
