@@ -3,6 +3,17 @@
 All notable changes in this project will be documented in this file.
 
 
+## [1.2.4](https://github.com/omnixys/omnixys-debian-13/compare/v1.2.3...v1.2.4) (2026-08-21)
+
+### Installer
+
+* **Installer:** make identity hook POSIX-compatible ([](https://github.com/omnixys/omnixys-debian-13/commit/b8af7178182a432ed4ebc909f100adc807b72e10))
+* **Installer:** remove ambiguous debconf conditionals ([](https://github.com/omnixys/omnixys-debian-13/commit/c3462cccdfc760e817879f00d28aba73e2b3cfba))
+
+### Release
+
+* **Release:** gate workflows on successful CI ([](https://github.com/omnixys/omnixys-debian-13/commit/9a670b3ea18e6924d6ee8fe88626f6ff20c3890a))
+
 ## [1.2.3](https://github.com/omnixys/omnixys-debian-13/compare/v1.2.2...v1.2.3) (2026-08-21)
 
 ### Installer
