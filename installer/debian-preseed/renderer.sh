@@ -952,6 +952,29 @@ run_identity_confirm_dialog() {
 }
 
 run_identity_step() {
+  apply_identity_debconf() {
+    log_hostname="\${1:-false}"
+    if [ -n "\${OMNIXYS_HOSTNAME:-}" ]; then
+      if debconf-set netcfg/get_hostname "\$OMNIXYS_HOSTNAME"; then
+        if [ "\$log_hostname" = "true" ]; then
+          log_info "hostname configuration applied"
+        fi
+      fi
+    fi
+    if [ -n "\${OMNIXYS_DOMAIN:-}" ]; then
+      debconf-set netcfg/get_domain "\$OMNIXYS_DOMAIN" || true
+    fi
+    if [ -n "\${OMNIXYS_FULLNAME:-}" ]; then
+      debconf-set passwd/user-fullname "\$OMNIXYS_FULLNAME" || true
+    fi
+    if [ -n "\${OMNIXYS_USERNAME:-}" ]; then
+      debconf-set passwd/username "\$OMNIXYS_USERNAME" || true
+    fi
+    if [ -n "\${OMNIXYS_PASSWORD_HASH:-}" ]; then
+      debconf-set passwd/user-password-crypted "\$OMNIXYS_PASSWORD_HASH" || true
+    fi
+  }
+
   mkdir -p /var/lib/omnixys /media/omnixys-identity
   if [ "\$IDENTITY_SOURCE" != "usb-env" ]; then
     log_info "identity source selected: none; using build-time defaults"
@@ -960,11 +983,7 @@ run_identity_step() {
       exit 1
     }
     if [ "\$IDENTITY_CONFIRM" = "true" ]; then
-      [ -n "\${OMNIXYS_HOSTNAME:-}" ] && debconf-set netcfg/get_hostname "\$OMNIXYS_HOSTNAME" || true
-      [ -n "\${OMNIXYS_DOMAIN:-}" ] && debconf-set netcfg/get_domain "\$OMNIXYS_DOMAIN" || true
-      [ -n "\${OMNIXYS_FULLNAME:-}" ] && debconf-set passwd/user-fullname "\$OMNIXYS_FULLNAME" || true
-      [ -n "\${OMNIXYS_USERNAME:-}" ] && debconf-set passwd/username "\$OMNIXYS_USERNAME" || true
-      [ -n "\${OMNIXYS_PASSWORD_HASH:-}" ] && debconf-set passwd/user-password-crypted "\$OMNIXYS_PASSWORD_HASH" || true
+      apply_identity_debconf false
     fi
     return 0
   fi
@@ -1011,11 +1030,7 @@ run_identity_step() {
     }
 
     if [ "\$IDENTITY_CONFIRM" = "true" ]; then
-      [ -n "\${OMNIXYS_HOSTNAME:-}" ] && { debconf-set netcfg/get_hostname "\$OMNIXYS_HOSTNAME" && log_info "hostname configuration applied"; } || true
-      [ -n "\${OMNIXYS_DOMAIN:-}" ] && debconf-set netcfg/get_domain "\$OMNIXYS_DOMAIN" || true
-      [ -n "\${OMNIXYS_FULLNAME:-}" ] && debconf-set passwd/user-fullname "\$OMNIXYS_FULLNAME" || true
-      [ -n "\${OMNIXYS_USERNAME:-}" ] && debconf-set passwd/username "\$OMNIXYS_USERNAME" || true
-      [ -n "\${OMNIXYS_PASSWORD_HASH:-}" ] && debconf-set passwd/user-password-crypted "\$OMNIXYS_PASSWORD_HASH" || true
+      apply_identity_debconf true
     fi
   else
     if ! cp "\$IDENTITY_FILE" /var/lib/omnixys/identity.env 2>>/var/log/installer/omnixys-early.log; then
@@ -1027,11 +1042,7 @@ run_identity_step() {
         exit 1
       }
       if [ "\$IDENTITY_CONFIRM" = "true" ]; then
-        [ -n "\${OMNIXYS_HOSTNAME:-}" ] && debconf-set netcfg/get_hostname "\$OMNIXYS_HOSTNAME" || true
-        [ -n "\${OMNIXYS_DOMAIN:-}" ] && debconf-set netcfg/get_domain "\$OMNIXYS_DOMAIN" || true
-        [ -n "\${OMNIXYS_FULLNAME:-}" ] && debconf-set passwd/user-fullname "\$OMNIXYS_FULLNAME" || true
-        [ -n "\${OMNIXYS_USERNAME:-}" ] && debconf-set passwd/username "\$OMNIXYS_USERNAME" || true
-        [ -n "\${OMNIXYS_PASSWORD_HASH:-}" ] && debconf-set passwd/user-password-crypted "\$OMNIXYS_PASSWORD_HASH" || true
+        apply_identity_debconf false
       fi
     else
       log_info "identity sourcing start"
@@ -1055,11 +1066,7 @@ run_identity_step() {
       }
 
       if [ "\$IDENTITY_LOADED" = "true" ] || [ "\$IDENTITY_CONFIRM" = "true" ]; then
-        [ -n "\${OMNIXYS_HOSTNAME:-}" ] && { debconf-set netcfg/get_hostname "\$OMNIXYS_HOSTNAME" && log_info "hostname configuration applied"; } || true
-        [ -n "\${OMNIXYS_DOMAIN:-}" ] && debconf-set netcfg/get_domain "\$OMNIXYS_DOMAIN" || true
-        [ -n "\${OMNIXYS_FULLNAME:-}" ] && debconf-set passwd/user-fullname "\$OMNIXYS_FULLNAME" || true
-        [ -n "\${OMNIXYS_USERNAME:-}" ] && debconf-set passwd/username "\$OMNIXYS_USERNAME" || true
-        [ -n "\${OMNIXYS_PASSWORD_HASH:-}" ] && debconf-set passwd/user-password-crypted "\$OMNIXYS_PASSWORD_HASH" || true
+        apply_identity_debconf true
       fi
     fi
   fi
