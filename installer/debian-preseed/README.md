@@ -15,6 +15,18 @@ recipes with the configured root filesystem. Any unsafe or incomplete disk
 decision aborts instead of falling back to a guessed device. LVM remains on the
 Debian `atomic` recipe and does not perform the multi-disk wipe.
 
+The hook logs detected disks, exact exclusion reasons, internal/wipe candidates,
+wipe and partition-table-reread results, recipe selection, and both final Debconf
+targets to `/var/log/installer/omnixys-partman.log`. Existing unmounted
+partitions remain eligible, while a disk with any mounted partition stays
+protected. A successful reread must also remove stale partition entries from
+sysfs before partman continues.
+
+For UTM/QEMU, the VM profile uses erase/auto. VirtIO `/dev/vda` participates in
+the normal `nvme`, `vd`, `sd`, `xvd`, `mmcblk` priority order. The partman message
+`No matching physical volumes found` may be emitted during normal LVM udeb
+initialization and must not be treated as the disk-classification result.
+
 Implemented API:
 
 - validate

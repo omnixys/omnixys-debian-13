@@ -4,9 +4,11 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEMPLATE="$ROOT_DIR/templates/debian-preseed.cfg.template"
 RENDERER="$ROOT_DIR/installer/debian-preseed/renderer.sh"
+VM_CONFIG="$ROOT_DIR/configs/vm.env"
 
 [[ -f "$TEMPLATE" ]] || { echo "template missing"; exit 1; }
 [[ -f "$RENDERER" ]] || { echo "renderer missing"; exit 1; }
+[[ -f "$VM_CONFIG" ]] || { echo "VM config missing"; exit 1; }
 
 grep -q "__PASSWORD_HASH__" "$TEMPLATE"
 grep -q "__PRESEED_EARLY_COMMAND__" "$TEMPLATE"
@@ -30,5 +32,9 @@ if grep -q 'RESOLVED_TARGET_DISK="/dev/sda"' "$RENDERER"; then
   echo "unsafe automatic bootstrap disk is still present"
   exit 1
 fi
+
+grep -q '^TARGET_DISK_MODE=auto$' "$VM_CONFIG"
+grep -q '^TARGET_DISK=$' "$VM_CONFIG"
+grep -q '^PARTITION_MODE=erase$' "$VM_CONFIG"
 
 echo "Renderer template placeholders test passed"

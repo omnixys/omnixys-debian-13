@@ -83,7 +83,11 @@ add_disk() {
 }
 
 add_partition() {
-  : >"$DEV/$1"
+  local name="$1"
+  local parent="$2"
+  : >"$DEV/$name"
+  mkdir -p "$SYS/$parent/$name"
+  printf '1\n' >"$SYS/$parent/$name/partition"
 }
 
 run_partman() {
@@ -100,6 +104,8 @@ run_partman() {
     OMNIXYS_WIPE_LOG="$WIPE_LOG" \
     OMNIXYS_PARTMAN_LOG="$PARTMAN_LOG" \
     OMNIXYS_FAIL_WIPE_DISK="${OMNIXYS_FAIL_WIPE_DISK:-}" \
+    OMNIXYS_FAIL_REREAD_DISK="${OMNIXYS_FAIL_REREAD_DISK:-}" \
+    OMNIXYS_STALE_PARTITIONS_DISK="${OMNIXYS_STALE_PARTITIONS_DISK:-}" \
     sh "$PARTMAN_SCRIPT"
 }
 
@@ -112,9 +118,9 @@ add_disk sdd 0 usb2
 add_disk sde 0 pci
 add_disk sdf 0 pci
 add_disk sdg 0 pci
-add_partition sde1
-add_partition sdf1
-add_partition sdg1
+add_partition sde1 sde
+add_partition sdf1 sdf
+add_partition sdg1 sdg
 ln -s ../../sdf1 "$DEV/disk/by-label/OMNIXYS_ID"
 printf '/dev/sde1 /cdrom iso9660 ro 0 0\n/dev/sdg1 /mnt ext4 rw 0 0\n' >"$MOUNTS"
 DISK_LIST='/dev/sdd\n/dev/nvme1n1\n/dev/sda\n/dev/sdc\n/dev/nvme0n1\n/dev/vdb\n/dev/sde\n/dev/sdf\n/dev/sdg\n/dev/xvda\n/dev/mmcblk0\n'
@@ -133,6 +139,57 @@ done
 grep -Fxq 'partman-auto/disk /dev/nvme0n1' "$DEBCONF_LOG"
 grep -Fxq 'grub-installer/bootdev /dev/nvme0n1' "$DEBCONF_LOG"
 grep -q 'method{ biosgrub }' "$DEBCONF_LOG"
+grep -qF '  /dev/sdc -> removable=1' "$PARTMAN_LOG"
+grep -qF '  /dev/sdd -> USB sysfs path:' "$PARTMAN_LOG"
+grep -qF '  /dev/sde -> parent of /cdrom' "$PARTMAN_LOG"
+grep -qF '  /dev/sdf -> OMNIXYS_ID label' "$PARTMAN_LOG"
+grep -qF '  /dev/sdg -> mounted at /mnt (ext4)' "$PARTMAN_LOG"
+
+# UTM/QEMU ARM64: an internal VirtIO disk remains eligible even when it has
+# existing, unmounted partitions. It is wiped once and selected as the target.
+reset_fixture utm_virtio
+add_disk vda 0 pci
+for partition in vda1 vda2 vda3 vda4; do add_partition "$partition" vda; done
+mkdir -p "$FIXTURE/efi"
+DISK_LIST='/dev/vda\n'
+render_partman erase auto
+run_partman
+[[ "$(grep -Fxc '/dev/vda' "$WIPE_LOG")" -eq 1 ]]
+grep -Fxq 'partman-auto/disk /dev/vda' "$DEBCONF_LOG"
+grep -Fxq 'grub-installer/bootdev /dev/vda' "$DEBCONF_LOG"
+grep -qF 'Internal disks:' "$PARTMAN_LOG"
+grep -qF '  /dev/vda' "$PARTMAN_LOG"
+grep -qF 'Detected disks:' "$PARTMAN_LOG"
+grep -qF 'Excluded disks:' "$PARTMAN_LOG"
+grep -qF 'Wipe candidates:' "$PARTMAN_LOG"
+grep -qF 'Wipe start: /dev/vda' "$PARTMAN_LOG"
+grep -qF 'Wipe result: success (/dev/vda)' "$PARTMAN_LOG"
+grep -qF 'Partition-table reread result: success (/dev/vda)' "$PARTMAN_LOG"
+grep -qF 'Selected system disk: /dev/vda' "$PARTMAN_LOG"
+grep -qF 'partman-auto/disk: /dev/vda' "$PARTMAN_LOG"
+grep -qF 'grub-installer/bootdev: /dev/vda' "$PARTMAN_LOG"
+grep -qF 'Selected recipe: UEFI/GPT' "$PARTMAN_LOG"
+
+# UTM plus protected media: only VirtIO may be wiped.
+reset_fixture utm_media
+add_disk vda 0 pci
+add_disk sda 0 usb-install
+add_disk sdb 0 usb-identity
+add_partition sda1 sda
+add_partition sdb1 sdb
+ln -s ../../sdb1 "$DEV/disk/by-label/OMNIXYS_ID"
+printf '/dev/sda1 /cdrom iso9660 ro 0 0\n' >"$MOUNTS"
+DISK_LIST='/dev/vda\n/dev/sda\n/dev/sdb\n'
+render_partman erase auto
+run_partman
+[[ "$(wc -l <"$WIPE_LOG" | tr -d ' ')" -eq 1 ]]
+grep -Fxq '/dev/vda' "$WIPE_LOG"
+if grep -Fxq '/dev/sda' "$WIPE_LOG" || grep -Fxq '/dev/sdb' "$WIPE_LOG"; then
+  echo "protected UTM media was wiped"
+  exit 1
+fi
+grep -qF '  /dev/sda -> parent of /cdrom' "$PARTMAN_LOG"
+grep -qF '  /dev/sdb -> OMNIXYS_ID label' "$PARTMAN_LOG"
 
 # UEFI selection uses the EFI recipe.
 reset_fixture uefi
@@ -168,6 +225,19 @@ if grep -q '^partman-auto/disk ' "$DEBCONF_LOG"; then
   echo "empty pool selected a target"
   exit 1
 fi
+grep -qF 'ERROR: No eligible internal installation disk found' "$PARTMAN_LOG"
+
+# An empty list-devices result records empty inventories and fails closed.
+reset_fixture no_devices
+DISK_LIST=''
+render_partman erase auto
+if run_partman; then
+  echo "empty list-devices result unexpectedly succeeded"
+  exit 1
+fi
+grep -qF 'Detected disks:' "$PARTMAN_LOG"
+grep -qF 'Internal disks:' "$PARTMAN_LOG"
+grep -qF 'ERROR: No eligible internal installation disk found (list-devices returned no disks)' "$PARTMAN_LOG"
 
 # A wipe error fails before any target is written.
 reset_fixture wipe_failure
@@ -185,6 +255,35 @@ if grep -q '^partman-auto/disk ' "$DEBCONF_LOG"; then
   echo "wipe failure still selected a target"
   exit 1
 fi
+
+# Partition-table reread failures and stale kernel partition entries are fatal.
+reset_fixture reread_failure
+add_disk vda 0 pci
+DISK_LIST='/dev/vda\n'
+OMNIXYS_FAIL_REREAD_DISK=/dev/vda
+render_partman erase auto
+if run_partman; then
+  echo "simulated reread failure unexpectedly succeeded"
+  exit 1
+fi
+unset OMNIXYS_FAIL_REREAD_DISK
+grep -qF 'ERROR: partition table reread failed: /dev/vda' "$PARTMAN_LOG"
+if grep -q '^partman-auto/disk ' "$DEBCONF_LOG"; then
+  echo "reread failure still selected a target"
+  exit 1
+fi
+
+reset_fixture stale_partitions
+add_disk vda 0 pci
+DISK_LIST='/dev/vda\n'
+OMNIXYS_STALE_PARTITIONS_DISK=/dev/vda
+render_partman erase auto
+if run_partman; then
+  echo "stale partitions unexpectedly succeeded"
+  exit 1
+fi
+unset OMNIXYS_STALE_PARTITIONS_DISK
+grep -qF 'ERROR: stale partitions remain after reread: /dev/vda' "$PARTMAN_LOG"
 
 # LVM auto selects one disk but never performs the erase-mode mass wipe.
 reset_fixture lvm
@@ -231,6 +330,7 @@ if grep -q '^partman-auto/disk ' "$DEBCONF_LOG"; then
   echo "explicit USB target reached partman"
   exit 1
 fi
+grep -qF '  /dev/sda -> USB sysfs path:' "$PARTMAN_LOG"
 
 # Debconf failures are fatal.
 reset_fixture debconf_failure

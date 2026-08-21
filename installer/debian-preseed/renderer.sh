@@ -461,24 +461,63 @@ device_exists() {
 EXCLUDED=""
 add_excluded() {
   parent="$(normalize_parent "$1")"
+  reason="$2"
   case "$parent" in
-    /dev/*) EXCLUDED="${EXCLUDED}${parent}\n" ;;
+    /dev/*)
+      record="${parent}|${reason}"
+      if ! printf '%b' "$EXCLUDED" | grep -Fxq "$record"; then
+        EXCLUDED="${EXCLUDED}${record}\n"
+      fi
+      ;;
   esac
 }
 
 is_excluded() {
-  printf '%b' "$EXCLUDED" | grep -Fxq "$1"
+  printf '%b' "$EXCLUDED" | awk -F '|' -v disk="$1" '$1 == disk { found=1 } END { exit !found }'
+}
+
+log_excluded() {
+  log_info "Excluded disks:"
+  if [ -z "$EXCLUDED" ]; then
+    log_info "  (none)"
+    return 0
+  fi
+  printf '%b' "$EXCLUDED" | while IFS='|' read -r disk reason; do
+    [ -n "$disk" ] || continue
+    log_info "  $disk -> $reason"
+  done
+}
+
+log_disk_list() {
+  heading="$1"
+  disks="$2"
+  log_info "$heading:"
+  if [ -z "$disks" ]; then
+    log_info "  (none)"
+    return 0
+  fi
+  printf '%s\n' "$disks" | while IFS= read -r disk; do
+    [ -n "$disk" ] || continue
+    log_info "  $disk"
+  done
 }
 
 collect_mounted_exclusions() {
   [ -r "$PROC_MOUNTS" ] || fail "mount table unavailable: $PROC_MOUNTS"
   while read -r source mountpoint fstype rest; do
     case "$source" in
-      /dev/*) add_excluded "$source" ;;
+      /dev/*)
+        if [ "$mountpoint" = "/cdrom" ]; then
+          add_excluded "$source" "parent of /cdrom"
+        elif [ "$mountpoint" = "/hd-media" ]; then
+          add_excluded "$source" "parent of /hd-media"
+        elif [ "$fstype" = "iso9660" ]; then
+          add_excluded "$source" "ISO9660 filesystem mounted at $mountpoint"
+        else
+          add_excluded "$source" "mounted at $mountpoint ($fstype)"
+        fi
+        ;;
     esac
-    if [ "$mountpoint" = "/cdrom" ] || [ "$mountpoint" = "/hd-media" ] || [ "$fstype" = "iso9660" ]; then
-      add_excluded "$source"
-    fi
   done <"$PROC_MOUNTS"
 
   label_path="${DEV_ROOT%/}/disk/by-label/$IDENTITY_DEVICE_LABEL"
@@ -492,9 +531,9 @@ collect_mounted_exclusions() {
     case "$identity_resolved" in
       "${DEV_ROOT%/}"/*)
         identity_resolved="${identity_resolved#"${DEV_ROOT%/}"}"
-        add_excluded "/dev$identity_resolved"
+        add_excluded "/dev$identity_resolved" "OMNIXYS_ID label"
         ;;
-      /dev/*) add_excluded "$identity_resolved" ;;
+      /dev/*) add_excluded "$identity_resolved" "OMNIXYS_ID label" ;;
     esac
   fi
 }
@@ -504,9 +543,10 @@ is_usb_disk() {
   base="${disk#/dev/}"
   sys_device="$(readlink -f "$SYS_BLOCK_ROOT/$base/device" 2>/dev/null || true)"
   case "$sys_device" in
-    */usb*/*|*/usb*) return 0 ;;
+    */usb*/*|*/usb*) USB_REASON="USB sysfs path: $sys_device"; return 0 ;;
   esac
   if command -v udevadm >/dev/null 2>&1 && udevadm info --query=property --name="$(device_path "$disk")" 2>/dev/null | grep -q '^ID_BUS=usb$'; then
+    USB_REASON="ID_BUS=usb"
     return 0
   fi
   return 1
@@ -515,34 +555,55 @@ is_usb_disk() {
 is_safe_internal() {
   disk="$1"
   base="${disk#/dev/}"
-  is_ignored_base "$base" && return 1
-  device_exists "$disk" || return 1
+  if is_ignored_base "$base"; then
+    add_excluded "$disk" "ignored device class"
+    return 1
+  fi
+  if ! device_exists "$disk"; then
+    add_excluded "$disk" "device missing or not a block device"
+    return 1
+  fi
   is_excluded "$disk" && return 1
-  [ -r "$SYS_BLOCK_ROOT/$base/removable" ] || return 1
+  if [ ! -r "$SYS_BLOCK_ROOT/$base/removable" ]; then
+    add_excluded "$disk" "missing removable sysfs attribute"
+    return 1
+  fi
   removable="$(cat "$SYS_BLOCK_ROOT/$base/removable" 2>/dev/null || true)"
-  [ "$removable" = "0" ] || return 1
-  is_usb_disk "$disk" && return 1
+  case "$removable" in
+    0) ;;
+    1) add_excluded "$disk" "removable=1"; return 1 ;;
+    *) add_excluded "$disk" "invalid removable value: ${removable:-empty}"; return 1 ;;
+  esac
+  USB_REASON=""
+  if is_usb_disk "$disk"; then
+    add_excluded "$disk" "$USB_REASON"
+    return 1
+  fi
   return 0
 }
 
 collect_internal_pool() {
   collect_mounted_exclusions
   all_disks="$(list-devices disk 2>/dev/null || true)"
-  [ -n "$all_disks" ] || fail "list-devices returned no disks"
+  log_disk_list "Detected disks" "$all_disks"
+  if [ -z "$all_disks" ]; then
+    log_excluded
+    log_disk_list "Internal disks" ""
+    fail "No eligible internal installation disk found (list-devices returned no disks)"
+  fi
   INTERNAL_POOL=""
   for disk in $all_disks; do
     parent="$(normalize_parent "$disk")"
     if [ "$parent" != "$disk" ]; then
-      log_info "reject $disk reason=not-whole-disk"
+      add_excluded "$disk" "not a whole disk"
     elif is_safe_internal "$disk"; then
       INTERNAL_POOL="${INTERNAL_POOL}${disk}\n"
-      log_info "candidate $disk"
-    else
-      log_info "reject $disk reason=protected-or-unsafe"
     fi
   done
   INTERNAL_POOL="$(printf '%b' "$INTERNAL_POOL" | sed '/^$/d' | sort -u)"
-  [ -n "$INTERNAL_POOL" ] || fail "no safe internal disks detected"
+  log_excluded
+  log_disk_list "Internal disks" "$INTERNAL_POOL"
+  [ -n "$INTERNAL_POOL" ] || fail "No eligible internal installation disk found"
 }
 
 pick_first_match() {
@@ -563,17 +624,63 @@ select_system_disk() {
   [ -n "$TARGET" ] || TARGET="$(printf '%s\n' "$INTERNAL_POOL" | head -n1)"
   [ -n "$TARGET" ] || fail "unable to select system disk"
   is_safe_internal "$TARGET" || fail "selected system disk is no longer safe: $TARGET"
-  log_info "selected system disk $TARGET"
+  log_info "Selected system disk: $TARGET"
+}
+
+partitions_present() {
+  disk="$1"
+  base="${disk#/dev/}"
+  for entry in "$SYS_BLOCK_ROOT/$base"/*; do
+    [ -e "$entry" ] || continue
+    [ ! -r "$entry/partition" ] || return 0
+  done
+  return 1
+}
+
+reread_partition_table() {
+  disk="$1"
+  path="$(device_path "$disk")"
+  log_info "Partition-table reread start: $disk"
+  if [ "$TEST_MODE" = "true" ]; then
+    [ "${OMNIXYS_FAIL_REREAD_DISK:-}" != "$disk" ] || fail "partition table reread failed: $disk"
+    [ "${OMNIXYS_STALE_PARTITIONS_DISK:-}" != "$disk" ] || fail "stale partitions remain after reread: $disk"
+    log_info "Partition-table reread result: success ($disk)"
+    return 0
+  fi
+
+  reread_ok="false"
+  if command -v blockdev >/dev/null 2>&1 && blockdev --rereadpt "$path"; then
+    reread_ok="true"
+    log_info "Partition-table reread method: blockdev --rereadpt"
+  elif command -v partprobe >/dev/null 2>&1 && partprobe "$path"; then
+    reread_ok="true"
+    log_info "Partition-table reread method: partprobe"
+  fi
+  [ "$reread_ok" = "true" ] || fail "partition table reread failed: $disk"
+
+  if command -v udevadm >/dev/null 2>&1; then
+    udevadm settle 2>/dev/null || true
+  fi
+  retry=0
+  while partitions_present "$disk" && [ "$retry" -lt 5 ]; do
+    sleep 1
+    retry=$((retry + 1))
+  done
+  partitions_present "$disk" && fail "stale partitions remain after reread: $disk"
+  log_info "Partition-table reread result: success ($disk)"
 }
 
 wipe_disk() {
   disk="$1"
   is_safe_internal "$disk" || fail "refusing to wipe protected or unsafe disk: $disk"
+  log_info "Wipe start: $disk"
   if [ "$TEST_MODE" = "true" ]; then
     [ -n "$WIPE_LOG" ] || fail "test mode requires OMNIXYS_WIPE_LOG"
     printf '%s\n' "$disk" >>"$WIPE_LOG"
     [ "${OMNIXYS_FAIL_WIPE_DISK:-}" != "$disk" ] || fail "simulated wipe failure: $disk"
-    log_info "test wipe $disk"
+    log_info "Wipe method: simulated ($disk)"
+    log_info "Wipe result: success ($disk)"
+    reread_partition_table "$disk"
     return 0
   fi
 
@@ -583,7 +690,7 @@ wipe_disk() {
     wipefs --all --force "$path" || fail "wipefs failed: $disk"
   fi
   if command -v blkdiscard >/dev/null 2>&1 && blkdiscard -f "$path"; then
-    log_info "discarded $disk"
+    log_info "Wipe method: blkdiscard ($disk)"
   else
     dd if=/dev/zero of="$path" bs=512 count=32768 conv=fsync || fail "head wipe failed: $disk"
     sectors="$(cat "$SYS_BLOCK_ROOT/${disk#/dev/}/size" 2>/dev/null || true)"
@@ -593,51 +700,75 @@ wipe_disk() {
     [ "$sectors" -gt 32768 ] || fail "disk too small for safe tail wipe: $disk"
     tail_seek=$((sectors - 32768))
     dd if=/dev/zero of="$path" bs=512 seek="$tail_seek" count=32768 conv=fsync || fail "tail wipe failed: $disk"
+    log_info "Wipe method: head/tail dd ($disk)"
   fi
   sync
-  if command -v blockdev >/dev/null 2>&1; then
-    blockdev --rereadpt "$path" || fail "partition table reread failed: $disk"
-  elif command -v partprobe >/dev/null 2>&1; then
-    partprobe "$path" || fail "partition table reread failed: $disk"
-  else
-    fail "no partition table reread tool available"
-  fi
+  log_info "Wipe result: success ($disk)"
+  reread_partition_table "$disk"
 }
 
 set_recipe() {
   [ "$PARTITION_MODE" = "erase" ] || return 0
   if [ -d "$EFI_ROOT" ]; then
     recipe="$UEFI_RECIPE"
-    log_info "selected UEFI/GPT recipe"
+    recipe_name="UEFI/GPT"
   else
     recipe="$BIOS_RECIPE"
-    log_info "selected BIOS/GPT recipe"
+    recipe_name="BIOS/GPT"
   fi
   debconf-set partman-auto/expert_recipe "$recipe" || fail "unable to set expert recipe"
+  log_info "Selected recipe: $recipe_name"
 }
 
 set_target() {
   target="$1"
   device_exists "$target" || fail "target is not a block device: $target"
   debconf-set partman-auto/disk "$target" || fail "unable to set partman target: $target"
+  log_info "partman-auto/disk: $target"
   debconf-set grub-installer/bootdev "$target" || fail "unable to set grub target: $target"
+  log_info "grub-installer/bootdev: $target"
 }
 
 validate_explicit_target() {
   target="$1"
+  log_info "Detected disks:"
+  log_info "  $target (explicit target)"
   collect_mounted_exclusions
-  [ "$(normalize_parent "$target")" = "$target" ] || fail "target is not a whole disk: $target"
-  is_safe_internal "$target" || fail "explicit target is protected or unsafe: $target"
+  if [ "$(normalize_parent "$target")" != "$target" ]; then
+    add_excluded "$target" "not a whole disk"
+    log_excluded
+    log_disk_list "Internal disks" ""
+    fail "target is not a whole disk: $target"
+  fi
+  if ! is_safe_internal "$target"; then
+    log_excluded
+    log_disk_list "Internal disks" ""
+    fail "explicit target is protected or unsafe: $target"
+  fi
 }
 
+log_explicit_target() {
+  target="$1"
+  log_excluded
+  log_info "Internal disks:"
+  log_info "  $target"
+  log_disk_list "Wipe candidates" ""
+  log_info "Selected system disk: $target"
+}
+
+log_info "Partition mode: $PARTITION_MODE"
+log_info "Target disk mode: $TARGET_DISK_MODE"
 set_recipe
 case "$TARGET_DISK_MODE" in
   auto)
     collect_internal_pool
     if [ "$PARTITION_MODE" = "erase" ]; then
+      log_disk_list "Wipe candidates" "$INTERNAL_POOL"
       printf '%s\n' "$INTERNAL_POOL" | while IFS= read -r disk; do
         wipe_disk "$disk"
       done
+    else
+      log_disk_list "Wipe candidates" ""
     fi
     select_system_disk
     set_target "$TARGET"
@@ -656,10 +787,12 @@ case "$TARGET_DISK_MODE" in
     esac
     [ -n "$resolved" ] || fail "by-id target not resolvable"
     validate_explicit_target "$resolved"
+    log_explicit_target "$resolved"
     set_target "$resolved"
     ;;
   manual)
     validate_explicit_target "$TARGET_DISK"
+    log_explicit_target "$TARGET_DISK"
     set_target "$TARGET_DISK"
     ;;
   *) fail "unsupported target disk mode: $TARGET_DISK_MODE" ;;

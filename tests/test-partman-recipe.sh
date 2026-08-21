@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034 # renderer globals are consumed by sourced functions
+# shellcheck disable=SC2016,SC2034 # literal recipe tokens; sourced renderer globals
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -29,7 +29,10 @@ assert_recipe() {
   case "$firmware" in
     uefi)
       grep -q 'method{ efi }' <<<"$recipe"
+      grep -q '\$iflabel{ gpt }' <<<"$recipe"
+      grep -q 'format{ }' <<<"$recipe"
       grep -q 'mountpoint{ /boot/efi }' <<<"$recipe"
+      ! grep -q '\$uefi{' <<<"$recipe"
       ! grep -q 'method{ biosgrub }' <<<"$recipe"
       ;;
     bios)
@@ -80,6 +83,7 @@ FINISH_ACTION='d-i debian-installer/exit/halt boolean true'
 
 PARTITION_MODE=erase
 FILESYSTEM=xfs
+ARCH=arm64
 debian_partition_mode_values
 debian_render_template "$ROOT_DIR/templates/debian-preseed.cfg.template" "$SANDBOX/erase.cfg"
 grep -q '^d-i partman/early_command string sh /cdrom/omnixys-partman.sh$' "$SANDBOX/erase.cfg"

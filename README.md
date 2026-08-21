@@ -142,6 +142,13 @@ automatic installation. Manual and by-id modes never wipe unrelated disks; LVM
 continues to use Debian's built-in `atomic` recipe and is outside the multi-disk
 erase behavior.
 
+`/var/log/installer/omnixys-partman.log` records the complete decision: detected
+devices, exclusions with reasons, internal and wipe candidates, wipe and
+partition-table-reread results, selected recipe/system disk, and the final
+`partman-auto/disk` and `grub-installer/bootdev` values. Existing unmounted
+partitions do not exclude a disk; any genuinely mounted partition keeps its parent
+disk protected. After a wipe, stale kernel partition entries are a fatal error.
+
 ## Profiles
 
 Included profile examples:
@@ -166,6 +173,18 @@ For UTM/ARM64 VM installations always use `configs/vm.env`:
 `configs/vm.env` intentionally sets `INSTALL_FIRMWARE=false` because the UTM VM
 uses VirtIO/vmnet virtual devices and does not require additional proprietary
 firmware packages (`firmware-linux`, `firmware-misc-nonfree`).
+
+The VM profile also uses `PARTITION_MODE=erase` with `TARGET_DISK_MODE=auto`.
+On a standard UTM VM, `/dev/vda` is classified as an internal VirtIO disk,
+cleared, and selected as the system disk. Attach additional internal disks only
+when they may also be cleared; USB installation and `OMNIXYS_ID` media remain
+protected. A previous VM profile used `manual`, which bypassed discovery and the
+erase-mode wipe even though `/dev/vda` was selected for partman.
+
+The partman message `No matching physical volumes found` can occur while its LVM
+and device-mapper components initialize and is not by itself evidence that the
+VirtIO disk is missing. Use `omnixys-partman.log` to identify the actual disk,
+wipe, reread, target, or recipe failure.
 
 The regular `config.env` is intended for bare-metal systems such as the
 OptiPlex and can contain different settings, in particular
