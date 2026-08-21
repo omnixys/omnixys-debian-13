@@ -248,8 +248,8 @@ Included workflows:
 
 - `ci.yml`: ShellCheck + dry-run + per-push/per-PR ISO artifacts; commitlint validates Conventional Commit messages
 - `boot-tests.yml`: manual build + BIOS/UEFI smoke tests (matrix-ready backend structure)
-- `semantic-release.yml`: automatic SemVer releases directly on `main` pushes (tag + GitHub Release + changelog)
-- `release.yml`: release asset builder (`.iso`, `.iso.sha256`) for production and `-vm` images
+- `semantic-release.yml`: automatic SemVer releases only after the complete `CI` workflow succeeds for a `main` push (tag + GitHub Release + changelog)
+- `release.yml`: builds and uploads production and `-vm` assets (`.iso`, `.iso.sha256`) only after a successful Semantic Release run created a new release tag; manual reruns require an existing tag
 
 Release builds require these GitHub Actions secrets:
 
@@ -270,10 +270,12 @@ These values are injected into the temporary CI config at runtime and override t
 
 ## Conventional Commits and SemVer
 
-Every push to `main` is automatically released with semantic-release:
+Every successful CI run for a push to `main` is evaluated by semantic-release. Failed,
+cancelled, or skipped CI runs cannot execute semantic-release or start release asset builds:
 
-1. `semantic-release.yml` determines the next version from Conventional Commits and creates the tag + GitHub Release.
-2. `release.yml` builds the production and `-vm` ISOs and attaches all assets to the release.
+1. `ci.yml` must complete successfully.
+2. `semantic-release.yml` determines the next version from Conventional Commits and creates the tag + GitHub Release.
+3. `release.yml` starts after Semantic Release succeeds and only builds assets when the current `main` commit carries the newly created `v*` tag.
 
 - `fix:` -> patch bump
 - `feat:` -> minor bump

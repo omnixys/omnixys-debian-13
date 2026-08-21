@@ -70,6 +70,7 @@ jobs:
           chmod +x tests/test-builder-embedding.sh
           chmod +x tests/test-partman-disks.sh
           chmod +x tests/test-partman-recipe.sh
+          chmod +x tests/test-workflow-gates.sh
           ./tests/test-installer-debian-preseed.sh
           ./tests/test-renderer-template.sh
           ./tests/test-validator-rules.sh
@@ -78,6 +79,7 @@ jobs:
           ./tests/test-builder-embedding.sh
           ./tests/test-partman-disks.sh
           ./tests/test-partman-recipe.sh
+          ./tests/test-workflow-gates.sh
 
   test-modules:
     needs: test-core

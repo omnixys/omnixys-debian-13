@@ -1,8 +1,10 @@
 name: Release
 
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: [Semantic Release]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       tag:
@@ -14,7 +16,50 @@ permissions:
   contents: write
 
 jobs:
+  release-gate:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.version.outputs.publish }}
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+      - name: Resolve verified release tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            tag="${{ inputs.tag }}"
+            if [[ -z "$tag" ]]; then
+              echo "Manual run requires inputs.tag" >&2
+              exit 1
+            fi
+            if ! git rev-parse --verify --quiet "refs/tags/${tag}" >/dev/null; then
+              echo "Release tag does not exist: ${tag}" >&2
+              exit 1
+            fi
+          else
+            tag="$(git tag --points-at HEAD --list 'v*' --sort=-v:refname | head -n 1)"
+            if [[ -z "$tag" ]]; then
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              echo "Semantic Release completed without creating a release tag"
+              exit 0
+            fi
+          fi
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
   release-assets:
+    needs: release-gate
+    if: needs.release-gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -24,24 +69,10 @@ jobs:
             distro: debian-13
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-gate.outputs.tag }}
       - name: Install build tooling
         run: sudo apt-get update; sudo apt-get install -y xorriso wget curl openssl
-      - name: Resolve release version
-        id: version
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "${{ github.event_name }}" == "release" ]]; then
-            tag="${{ github.event.release.tag_name }}"
-          elif [[ -n "${{ inputs.tag }}" ]]; then
-            tag="${{ inputs.tag }}"
-          else
-            echo "Manual run requires inputs.tag" >&2
-            exit 1
-          fi
-          version="${tag#v}"
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
       - name: Prepare release config
         shell: bash
         env:
@@ -89,7 +120,7 @@ jobs:
           set_config_value .release.env HOSTNAME "$SECRET_HOSTNAME"
           set_config_value .release.env SSH_PUBLIC_KEY "$SECRET_SSH_PUBLIC_KEY"
           set_config_value .release.env DOMAIN "$SECRET_DOMAIN"
-          sed -i "s/^INSTALLER_VERSION=.*/INSTALLER_VERSION=${{ steps.version.outputs.version }}/" .release.env
+          sed -i "s/^INSTALLER_VERSION=.*/INSTALLER_VERSION=${{ needs.release-gate.outputs.version }}/" .release.env
       - name: Build ISO
         run: |
           chmod +x build.sh
@@ -101,7 +132,7 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts/release
           for arch in amd64 arm64; do
-            base_name="omnixys-${{ matrix.distro }}-${arch}-${{ steps.version.outputs.version }}"
+            base_name="omnixys-${{ matrix.distro }}-${arch}-${{ needs.release-gate.outputs.version }}"
             iso_path="artifacts/release/${base_name}.iso"
             cp "output/omnixys-debian-13-${arch}-auto.iso" "$iso_path"
             sha256sum "$iso_path" > "${iso_path}.sha256"
@@ -111,14 +142,13 @@ jobs:
       - name: Upload release workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.backend }}-${{ steps.version.outputs.version }}
+          name: release-${{ matrix.backend }}-${{ needs.release-gate.outputs.version }}
           path: ${{ steps.assets.outputs.glob }}
           retention-days: 30
       - name: Publish GitHub release assets
-        if: github.event_name == 'release' || inputs.tag != ''
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
+          tag_name: ${{ needs.release-gate.outputs.tag }}
           files: ${{ steps.assets.outputs.glob }}
           fail_on_unmatched_files: true
           append_body: false
@@ -128,38 +158,25 @@ jobs:
       - name: Upload changelog checksum artifact
         uses: actions/upload-artifact@v4
         with:
-          name: release-changelog-${{ steps.version.outputs.version }}
+          name: release-changelog-${{ needs.release-gate.outputs.version }}
           path: CHANGELOG.md.sha256
 
   release-assets-vm:
-    needs: release-assets
+    needs: [release-gate, release-assets]
+    if: needs.release-gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-gate.outputs.tag }}
       - name: Install build tooling
         run: sudo apt-get update; sudo apt-get install -y xorriso wget curl openssl
-      - name: Resolve release version
-        id: version
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "${{ github.event_name }}" == "release" ]]; then
-            tag="${{ github.event.release.tag_name }}"
-          elif [[ -n "${{ inputs.tag }}" ]]; then
-            tag="${{ inputs.tag }}"
-          else
-            echo "Manual run requires inputs.tag" >&2
-            exit 1
-          fi
-          version="${tag#v}"
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
       - name: Prepare VM release config
         shell: bash
         run: |
           set -euo pipefail
           cp configs/vm.env .release.env
-          sed -i "s/^INSTALLER_VERSION=.*/INSTALLER_VERSION=${{ steps.version.outputs.version }}/" .release.env
+          sed -i "s/^INSTALLER_VERSION=.*/INSTALLER_VERSION=${{ needs.release-gate.outputs.version }}/" .release.env
           # Published VM release images must never carry a baked identity.env.
           # Runtime usb-env identity (OMNIXYS_ID) is applied at install time and
           # is independent of this build-time embed policy.
@@ -190,7 +207,7 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts/release
           for arch in amd64 arm64; do
-            base_name="omnixys-debian-13-${arch}-${{ steps.version.outputs.version }}-vm"
+            base_name="omnixys-debian-13-${arch}-${{ needs.release-gate.outputs.version }}-vm"
             iso_path="artifacts/release/${base_name}.iso"
             cp "output/omnixys-debian-13-${arch}-auto.iso" "$iso_path"
             sha256sum "$iso_path" > "${iso_path}.sha256"
@@ -200,14 +217,13 @@ jobs:
       - name: Upload VM release workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: release-debian-preseed-vm-${{ steps.version.outputs.version }}
+          name: release-debian-preseed-vm-${{ needs.release-gate.outputs.version }}
           path: ${{ steps.assets.outputs.glob }}
           retention-days: 30
       - name: Publish GitHub release assets
-        if: github.event_name == 'release' || inputs.tag != ''
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
+          tag_name: ${{ needs.release-gate.outputs.tag }}
           files: ${{ steps.assets.outputs.glob }}
           fail_on_unmatched_files: true
           append_body: false

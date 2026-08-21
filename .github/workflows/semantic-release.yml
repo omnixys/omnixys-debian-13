@@ -1,7 +1,9 @@
 name: Semantic Release
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches:
       - main
 
@@ -14,13 +16,19 @@ permissions:
 
 jobs:
   release:
-    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha }}
           token: ${{ secrets.OMNIXYS_TOKEN || github.token }}
+      - name: Attach verified commit to main
+        run: git checkout -B main "${{ github.event.workflow_run.head_sha }}"
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
