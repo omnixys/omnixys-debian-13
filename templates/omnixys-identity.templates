@@ -45,9 +45,3 @@ Template: omnixys/static-dns
 Type: string
 Description: Static DNS servers separated by spaces (leave empty for DHCP):
  Example: 192.168.2.1 1.1.1.1
-
-Template: omnixys/confirm
-Type: boolean
-Default: true
-Description: Apply this identity configuration?
- ${SUMMARY}

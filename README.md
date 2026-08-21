@@ -294,7 +294,7 @@ The Debian backend can optionally override identity values at install time from 
 - `IDENTITY_SOURCE=usb-env` enables lookup of `/identity.env` on `/cdrom` or on a removable medium labeled by `IDENTITY_DEVICE_LABEL` (for example `OMNIXYS_ID`).
 - `IDENTITY_REQUIRED=true` aborts installation early (non-zero exit) when the identity file is missing or unreadable. Used by the production profile.
 - `IDENTITY_REQUIRED=false` does **not** disable identity: the identity file is still consumed and overrides are applied when present. Only when it is missing does the installer continue with the build-time defaults. Used by the VM profile.
-- `IDENTITY_CONFIRM=true` displays native Debian Installer questions on every valid installation path. Values from `identity.env` take precedence; otherwise the build-time defaults are prefilled.
+- `IDENTITY_CONFIRM=true` shows the resolved values on the installer console. Without input they are accepted automatically after five seconds. Enter `E` within that window to edit them with the native Debian Installer frontend. Values from `identity.env` take precedence; otherwise the build-time defaults are prefilled.
 - Supported variables in `identity.env` are:
 - `OMNIXYS_HOSTNAME`
 - `OMNIXYS_DOMAIN` (optional)

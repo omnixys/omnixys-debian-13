@@ -129,7 +129,9 @@ sandboxize() {
     -e "s|/media/omnixys-identity|$SANDBOX/media/omnixys-identity|g" \
     -e "s|/var/log|$SANDBOX/var/log|g" \
     -e "s|/usr/share/debconf|$SANDBOX/usr/share/debconf|g" \
+    -e "s|/dev/console|$SANDBOX/dev/console|g" \
     -e "s|/dev/disk/by-label|$SANDBOX/dev/disk/by-label|g" \
+    -e "s|IDENTITY_CONFIRM_TIMEOUT=5|IDENTITY_CONFIRM_TIMEOUT=1|g" \
     -e "s|IDENTITY_DEVICE_RETRIES=5|IDENTITY_DEVICE_RETRIES=1|g" \
     -e "s|IDENTITY_DEVICE_RETRY_DELAY=1|IDENTITY_DEVICE_RETRY_DELAY=0|g" \
     "$src" >"$dst"
@@ -508,11 +510,7 @@ db_fset() { printf 'fset %s\n' "$*" >>"$DEBCONF_UI_LOG"; }
 db_input() { printf 'input %s\n' "$*" >>"$DEBCONF_UI_LOG"; }
 db_go() { printf 'go\n' >>"$DEBCONF_UI_LOG"; }
 db_get() {
-  if [ "$1" = "omnixys/confirm" ]; then
-    RET="${DEBCONF_CONFIRM_RESULT:-true}"
-  else
-    RET="$DB_LAST_VALUE"
-  fi
+  RET="$DB_LAST_VALUE"
   printf 'get %s\n' "$1" >>"$DEBCONF_UI_LOG"
 }
 db_subst() { printf 'subst %s\n' "$*" >>"$DEBCONF_UI_LOG"; }
@@ -520,6 +518,13 @@ DBEOF
 }
 
 export DEBCONF_UI_LOG="$SANDBOX/debconf-ui.log"
+export OMNIXYS_IDENTITY_CONSOLE_INPUT="$SANDBOX/dev/console-input"
+
+request_identity_edit() {
+  mkdir -p "$SANDBOX/dev"
+  : >"$SANDBOX/dev/console"
+  printf 'E\n' >"$OMNIXYS_IDENTITY_CONSOLE_INPUT"
+}
 
 # --- Case 15: IDENTITY_CONFIRM=true + IDENTITY_SOURCE=none ---
 # --- -> native d-i dialog is shown with build defaults and saves identity.env
@@ -531,6 +536,7 @@ sandboxize "$EARLY" "$SANDBOX/case15-early.sh"
 reset_sandbox
 : >"$DEBCONF_UI_LOG"
 install_debconf_stub
+request_identity_edit
 run_early "$SANDBOX/case15-early.sh"
 if [[ ! -f "$SANDBOX/var/lib/omnixys/identity.env" ]]; then
   cat "$SANDBOX/var/log/installer/omnixys-early.log" >&2
@@ -538,10 +544,14 @@ if [[ ! -f "$SANDBOX/var/lib/omnixys/identity.env" ]]; then
   echo "case15: native dialog did not save identity.env" >&2
   exit 1
 fi
-grep -q 'load .*omnixys-identity.templates omnixys' "$DEBCONF_UI_LOG"
+grep -q 'load .*omnixys-identity.templates omnixys' "$DEBCONF_UI_LOG" || {
+  sed -n '1,120p' "$SANDBOX/var/log/installer/omnixys-early.log" >&2
+  echo "case15: edit gate did not open the native dialog" >&2
+  exit 1
+}
 grep -q 'input critical omnixys/hostname' "$DEBCONF_UI_LOG"
-grep -q 'input critical omnixys/confirm' "$DEBCONF_UI_LOG"
-grep -q 'identity confirm dialog: values saved' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'input critical omnixys/ssh-public-key' "$DEBCONF_UI_LOG"
+grep -q 'identity edit dialog: values saved' "$SANDBOX/var/log/installer/omnixys-early.log"
 grep -q "OMNIXYS_HOSTNAME='omnixys-vm-01'" "$SANDBOX/var/lib/omnixys/identity.env"
 grep -qF 'netcfg/get_hostname omnixys-vm-01' "$DEBCONF_LOG"
 
@@ -552,6 +562,7 @@ sandboxize "$EARLY" "$SANDBOX/case16-early.sh"
 reset_sandbox
 : >"$DEBCONF_UI_LOG"
 install_debconf_stub
+request_identity_edit
 cat >"$SANDBOX/cdrom/identity.env" <<'EOF'
 OMNIXYS_HOSTNAME=dialog-node
 OMNIXYS_DOMAIN=dialog.local
@@ -561,23 +572,36 @@ OMNIXYS_PASSWORD_HASH='$6$dialog$secret$hash'
 EOF
 run_early "$SANDBOX/case16-early.sh"
 grep -q 'set omnixys/hostname dialog-node' "$DEBCONF_UI_LOG"
-grep -q 'identity confirm dialog: confirmed' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'identity edit requested from installer console' "$SANDBOX/var/log/installer/omnixys-early.log"
 if grep -qF '$6$dialog$secret$hash' "$SANDBOX/var/log/installer/omnixys-early.log"; then
   echo "case16: password hash leaked into early log" >&2
   exit 1
 fi
 
-# --- Case 16b: cancelling restores values and does not rewrite identity.env ---
-export DEBCONF_CONFIRM_RESULT=false
+# --- Case 16b: no console input automatically confirms after the timeout ---
+export IDENTITY_SOURCE=none
 debian_render_early_script
 sandboxize "$EARLY" "$SANDBOX/case16b-early.sh"
 reset_sandbox
 : >"$DEBCONF_UI_LOG"
-install_debconf_stub
+mkdir -p "$SANDBOX/dev"
+: >"$SANDBOX/dev/console"
+mkfifo "$OMNIXYS_IDENTITY_CONSOLE_INPUT"
+(sleep 3 >"$OMNIXYS_IDENTITY_CONSOLE_INPUT") &
+console_writer_pid=$!
+timeout_started=$SECONDS
 run_early "$SANDBOX/case16b-early.sh"
-grep -q 'identity confirm dialog: cancelled by user' "$SANDBOX/var/log/installer/omnixys-early.log"
-[[ ! -f "$SANDBOX/var/lib/omnixys/identity.env" ]]
-unset DEBCONF_CONFIRM_RESULT
+timeout_elapsed=$((SECONDS - timeout_started))
+kill "$console_writer_pid" 2>/dev/null || true
+wait "$console_writer_pid" 2>/dev/null || true
+if ((timeout_elapsed >= 3)); then
+  echo "case16b: console gate waited for input instead of timing out" >&2
+  exit 1
+fi
+grep -q 'identity values automatically confirmed after 5 seconds without input' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'identity confirmation: values saved without editing' "$SANDBOX/var/log/installer/omnixys-early.log"
+[[ -f "$SANDBOX/var/lib/omnixys/identity.env" ]]
+[[ ! -s "$DEBCONF_UI_LOG" ]]
 
 # --- Case 17: static network values reach the final target configuration ---
 export IDENTITY_CONFIRM=false
