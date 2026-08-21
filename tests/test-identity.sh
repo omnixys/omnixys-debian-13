@@ -430,4 +430,67 @@ grep -q 'vfat kernel module loaded via modprobe' "$SANDBOX/var/log/installer/omn
 grep -q 'identity device mounted via -t vfat after module load' "$SANDBOX/var/log/installer/omnixys-early.log"
 grep -q 'hostname override applied: omnixys-03' "$SANDBOX/var/log/installer/omnixys-early.log"
 
+# --- Case 11: Bash-ism regression ---
+# --- -> generated early script must not contain += or ${!...} ---
+export IDENTITY_REQUIRED=true
+debian_render_early_script
+sandboxize "$EARLY" "$SANDBOX/case11-early.sh"
+if grep -q '+=' "$SANDBOX/case11-early.sh"; then
+  echo "case11: generated script contains bash += operator" >&2
+  exit 1
+fi
+if grep -q '${!' "$SANDBOX/case11-early.sh"; then
+  echo "case11: generated script contains bash \${!...} indirect expansion" >&2
+  exit 1
+fi
+
+# --- Case 12: exec ordering ---
+# --- -> mkdir must appear before exec in the generated script ---
+export IDENTITY_REQUIRED=false
+debian_render_early_script
+sandboxize "$EARLY" "$SANDBOX/case12-early.sh"
+mkdir_line=$(grep -n 'mkdir -p /var/log/installer' "$SANDBOX/case12-early.sh" | head -1 | cut -d: -f1)
+exec_line=$(grep -n 'exec >' "$SANDBOX/case12-early.sh" | head -1 | cut -d: -f1)
+if [ -z "$mkdir_line" ] || [ -z "$exec_line" ]; then
+  echo "case12: mkdir or exec line not found in generated script" >&2
+  exit 1
+fi
+if [ "$mkdir_line" -ge "$exec_line" ]; then
+  echo "case12: mkdir (line $mkdir_line) must come before exec (line $exec_line)" >&2
+  exit 1
+fi
+
+# --- Case 13: sourcing error handling ---
+# --- -> corrupted identity.env: error logged, OMNIXYS_* remains empty ---
+export IDENTITY_REQUIRED=true
+debian_render_early_script
+sandboxize "$EARLY" "$SANDBOX/case13-early.sh"
+reset_sandbox
+mkdir -p "$SANDBOX/cdrom"
+printf 'OMNIXYS_HOSTNAME=corrupted-syntax-\\\\\n' >"$SANDBOX/cdrom/identity.env"
+run_early "$SANDBOX/case13-early.sh"
+grep -q 'identity sourcing start' "$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'identity sourcing done, OMNIXYS_HOSTNAME=<unset>' "$SANDBOX/var/log/installer/omnixys-early.log"
+if grep -qF 'netcfg/get_hostname' "$DEBCONF_LOG"; then
+  echo "case13: debconf-set must not be called when sourcing fails" >&2
+  exit 1
+fi
+
+# --- Case 14: cp failure handling ---
+# --- -> read-only destination: error logged, identity not applied ---
+export IDENTITY_REQUIRED=true
+debian_render_early_script
+sandboxize "$EARLY" "$SANDBOX/case14-early.sh"
+reset_sandbox
+mkdir -p "$SANDBOX/cdrom" "$SANDBOX/var/lib/omnixys"
+printf 'OMNIXYS_HOSTNAME=should-not-apply\n' >"$SANDBOX/cdrom/identity.env"
+chmod 444 "$SANDBOX/var/lib/omnixys"
+run_early "$SANDBOX/case14-early.sh"
+grep -q 'FAILED to copy identity file' "$SANDBOX/var/log/installer/omnixys-early.log"
+if grep -qF 'netcfg/get_hostname' "$DEBCONF_LOG"; then
+  echo "case14: debconf-set must not be called when cp fails" >&2
+  exit 1
+fi
+chmod 755 "$SANDBOX/var/lib/omnixys"
+
 echo "Identity mechanism tests passed"

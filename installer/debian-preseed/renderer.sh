@@ -339,7 +339,8 @@ debian_render_early_script() {
   cat >"$out" <<EOF
 #!/bin/sh
 set -x
-exec >/var/log/omnixys-early.log 2>&1
+mkdir -p /var/log/installer
+exec >/var/log/installer/omnixys-early.log 2>&1
 
 TARGET_DISK_MODE="$TARGET_DISK_MODE"
 TARGET_DISK_BY_ID="${TARGET_DISK_BY_ID:-}"
@@ -350,8 +351,6 @@ IDENTITY_DEVICE_LABEL="${IDENTITY_DEVICE_LABEL:-OMNIXYS-ID}"
 IDENTITY_CONFIRM="${IDENTITY_CONFIRM:-true}"
 IDENTITY_DEVICE_RETRIES=5
 IDENTITY_DEVICE_RETRY_DELAY=1
-
-mkdir -p /var/log/installer
 
 log_info() {
   echo "omnixys: \$*"
@@ -472,12 +471,6 @@ mount_identity_device() {
 run_identity_confirm_dialog() {
   [ "\$IDENTITY_CONFIRM" = "true" ] || return 0
 
-  # Skip in non-interactive environments (CI, test sandbox, no TTY).
-  if [ ! -t 0 ] && [ ! -t 1 ]; then
-    log_info "non-interactive environment detected; skipping identity confirm dialog"
-    return 0
-  fi
-
   local UI_CMD=""
   if command -v whiptail >/dev/null 2>&1; then
     UI_CMD="whiptail"
@@ -494,10 +487,32 @@ run_identity_confirm_dialog() {
   local W=60
   local H=20
 
+  _SAVED_HOSTNAME="\${OMNIXYS_HOSTNAME:-}"
+  _SAVED_DOMAIN="\${OMNIXYS_DOMAIN:-}"
+  _SAVED_FULLNAME="\${OMNIXYS_FULLNAME:-}"
+  _SAVED_USERNAME="\${OMNIXYS_USERNAME:-}"
+  _SAVED_SSH_KEY="\${OMNIXYS_SSH_PUBLIC_KEY:-}"
+  _SAVED_IF="\${OMNIXYS_NETWORK_INTERFACE:-}"
+  _SAVED_IP="\${OMNIXYS_STATIC_IP:-}"
+  _SAVED_ROUTES="\${OMNIXYS_STATIC_ROUTERS:-}"
+  _SAVED_DNS="\${OMNIXYS_STATIC_DNS:-}"
+
   prompt_value() {
     local label="\$1"
     local var_name="\$2"
-    local current="\${!var_name:-}"
+    local current
+    case "\$var_name" in
+      OMNIXYS_HOSTNAME) current="\${OMNIXYS_HOSTNAME:-}" ;;
+      OMNIXYS_DOMAIN) current="\${OMNIXYS_DOMAIN:-}" ;;
+      OMNIXYS_FULLNAME) current="\${OMNIXYS_FULLNAME:-}" ;;
+      OMNIXYS_USERNAME) current="\${OMNIXYS_USERNAME:-}" ;;
+      OMNIXYS_SSH_PUBLIC_KEY) current="\${OMNIXYS_SSH_PUBLIC_KEY:-}" ;;
+      OMNIXYS_NETWORK_INTERFACE) current="\${OMNIXYS_NETWORK_INTERFACE:-}" ;;
+      OMNIXYS_STATIC_IP) current="\${OMNIXYS_STATIC_IP:-}" ;;
+      OMNIXYS_STATIC_ROUTERS) current="\${OMNIXYS_STATIC_ROUTERS:-}" ;;
+      OMNIXYS_STATIC_DNS) current="\${OMNIXYS_STATIC_DNS:-}" ;;
+      *) current="" ;;
+    esac
     local result
 
     result="\$(
@@ -541,23 +556,32 @@ run_identity_confirm_dialog() {
   OMNIXYS_STATIC_DNS="\$(prompt_value 'DNS Server (z.B. 192.168.2.1):' 'OMNIXYS_STATIC_DNS')"
 
   SUMMARY="Hostname: \$OMNIXYS_HOSTNAME\\n"
-  SUMMARY+=\"Domain: \$OMNIXYS_DOMAIN\\n\"
-  SUMMARY+=\"Name: \$OMNIXYS_FULLNAME\\n\"
-  SUMMARY+=\"Benutzer: \$OMNIXYS_USERNAME\\n\"
-  SUMMARY+=\"Passwort: \$status\\n\"
+  SUMMARY="\${SUMMARY}Domain: \$OMNIXYS_DOMAIN\\n"
+  SUMMARY="\${SUMMARY}Name: \$OMNIXYS_FULLNAME\\n"
+  SUMMARY="\${SUMMARY}Benutzer: \$OMNIXYS_USERNAME\\n"
+  SUMMARY="\${SUMMARY}Passwort: \$pw_set\\n"
   if [ -n \"\$OMNIXYS_NETWORK_INTERFACE\" ]; then
-    SUMMARY+=\"\\nNetzwerk:\\n\"
-    SUMMARY+=\"  Interface: \$OMNIXYS_NETWORK_INTERFACE\\n\"
-    SUMMARY+=\"  IP: \$OMNIXYS_STATIC_IP\\n\"
-    SUMMARY+=\"  Router: \$OMNIXYS_STATIC_ROUTERS\\n\"
-    SUMMARY+=\"  DNS: \$OMNIXYS_STATIC_DNS\\n\"
+    SUMMARY="\${SUMMARY}\\nNetzwerk:\\n"
+    SUMMARY="\${SUMMARY}  Interface: \$OMNIXYS_NETWORK_INTERFACE\\n"
+    SUMMARY="\${SUMMARY}  IP: \$OMNIXYS_STATIC_IP\\n"
+    SUMMARY="\${SUMMARY}  Router: \$OMNIXYS_STATIC_ROUTERS\\n"
+    SUMMARY="\${SUMMARY}  DNS: \$OMNIXYS_STATIC_DNS\\n"
   fi
 
   if \$UI_CMD --yesno \"\$SUMMARY\\n\\nFortfahren?\" \$H \$W 2>&1; then
     log_info "identity confirm dialog: confirmed"
   else
-    log_info "identity confirm dialog: cancelled by user"
-    exit 1
+    OMNIXYS_HOSTNAME="\$_SAVED_HOSTNAME"
+    OMNIXYS_DOMAIN="\$_SAVED_DOMAIN"
+    OMNIXYS_FULLNAME="\$_SAVED_FULLNAME"
+    OMNIXYS_USERNAME="\$_SAVED_USERNAME"
+    OMNIXYS_SSH_PUBLIC_KEY="\$_SAVED_SSH_KEY"
+    OMNIXYS_NETWORK_INTERFACE="\$_SAVED_IF"
+    OMNIXYS_STATIC_IP="\$_SAVED_IP"
+    OMNIXYS_STATIC_ROUTERS="\$_SAVED_ROUTES"
+    OMNIXYS_STATIC_DNS="\$_SAVED_DNS"
+    log_info "identity confirm dialog: cancelled by user; using original values"
+    return 0
   fi
 
   cat > /var/lib/omnixys/identity.env <<IDEOF
@@ -615,18 +639,24 @@ run_identity_step() {
     fi
     log_info "identity file not found; continuing with build-time defaults"
   else
-    cp "\$IDENTITY_FILE" /var/lib/omnixys/identity.env
-    set +x
-    . /var/lib/omnixys/identity.env
+    if ! cp "\$IDENTITY_FILE" /var/lib/omnixys/identity.env 2>>/var/log/installer/omnixys-early.log; then
+      log_info "FAILED to copy identity file from \$IDENTITY_FILE"
+      IDENTITY_FILE=""
+    else
+      {
+        echo "--- identity sourcing start ---"
+        . /var/lib/omnixys/identity.env
+        echo "--- identity sourcing done, OMNIXYS_HOSTNAME=\${OMNIXYS_HOSTNAME:-<unset>} ---"
+      } >>/var/log/installer/omnixys-early.log 2>&1
 
-    run_identity_confirm_dialog
+      run_identity_confirm_dialog
 
-    [ -n "\${OMNIXYS_HOSTNAME:-}" ] && { debconf-set netcfg/get_hostname "\$OMNIXYS_HOSTNAME" && log_info "hostname override applied: \$OMNIXYS_HOSTNAME"; } || true
-    [ -n "\${OMNIXYS_DOMAIN:-}" ] && debconf-set netcfg/get_domain "\$OMNIXYS_DOMAIN" || true
-    [ -n "\${OMNIXYS_FULLNAME:-}" ] && debconf-set passwd/user-fullname "\$OMNIXYS_FULLNAME" || true
-    [ -n "\${OMNIXYS_USERNAME:-}" ] && debconf-set passwd/username "\$OMNIXYS_USERNAME" || true
-    [ -n "\${OMNIXYS_PASSWORD_HASH:-}" ] && debconf-set passwd/user-password-crypted "\$OMNIXYS_PASSWORD_HASH" || true
-    set -x
+      [ -n "\${OMNIXYS_HOSTNAME:-}" ] && { debconf-set netcfg/get_hostname "\$OMNIXYS_HOSTNAME" && log_info "hostname override applied: \$OMNIXYS_HOSTNAME"; } || true
+      [ -n "\${OMNIXYS_DOMAIN:-}" ] && debconf-set netcfg/get_domain "\$OMNIXYS_DOMAIN" || true
+      [ -n "\${OMNIXYS_FULLNAME:-}" ] && debconf-set passwd/user-fullname "\$OMNIXYS_FULLNAME" || true
+      [ -n "\${OMNIXYS_USERNAME:-}" ] && debconf-set passwd/username "\$OMNIXYS_USERNAME" || true
+      [ -n "\${OMNIXYS_PASSWORD_HASH:-}" ] && debconf-set passwd/user-password-crypted "\$OMNIXYS_PASSWORD_HASH" || true
+    fi
   fi
 
   if [ "\$IDENTITY_MOUNTED" = "true" ]; then
