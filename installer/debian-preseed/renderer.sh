@@ -837,8 +837,11 @@ IDENTITY_CONFIRM="${IDENTITY_CONFIRM:-true}"
 IDENTITY_CONFIRM_TIMEOUT=5
 IDENTITY_CONSOLE="\${OMNIXYS_IDENTITY_CONSOLE:-/dev/console}"
 IDENTITY_CONSOLE_INPUT="\${OMNIXYS_IDENTITY_CONSOLE_INPUT:-\$IDENTITY_CONSOLE}"
-IDENTITY_DEVICE_RETRIES=5
-IDENTITY_DEVICE_RETRY_DELAY=1
+PROC_MOUNTS="\${OMNIXYS_PROC_MOUNTS:-/proc/mounts}"
+# Detection never relies on stable Linux device names; the retry window also
+# tolerates USB media that enumerate late during installer start-up.
+IDENTITY_DEVICE_RETRIES="\${OMNIXYS_IDENTITY_RETRIES:-10}"
+IDENTITY_DEVICE_RETRY_DELAY="\${OMNIXYS_IDENTITY_RETRY_DELAY:-1}"
 
 OMNIXYS_HOSTNAME=$identity_hostname
 OMNIXYS_DOMAIN=$identity_domain
@@ -856,6 +859,37 @@ log_info() {
   printf 'omnixys: %s\\n' "\$*" >>/var/log/installer/omnixys-early.log 2>/dev/null || true
 }
 
+notify_console() {
+  # Best-effort visibility on the installer console; never fatal.
+  if [ -w "\$IDENTITY_CONSOLE" ]; then
+    printf '\\n%s\\n' "\$*" >>"\$IDENTITY_CONSOLE" 2>/dev/null || true
+  fi
+  if command -v logger >/dev/null 2>&1; then
+    logger -t omnixys-early -- "\$*" >/dev/null 2>&1 || true
+  fi
+}
+
+abort_install() {
+  log_info "ABORT: \$*"
+  notify_console "Omnixys: Installation abgebrochen - \$*"
+  exit 1
+}
+
+STEP_COUNT=0
+run_step() {
+  desc="\$1"; shift
+  STEP_COUNT=\$((STEP_COUNT + 1))
+  log_info "STEP \$STEP_COUNT start: \$desc (cmd: \$*)"
+  rc=0
+  "\$@" || rc=\$?
+  if [ "\$rc" -eq 0 ]; then
+    log_info "STEP \$STEP_COUNT ok: \$desc"
+  else
+    log_info "STEP \$STEP_COUNT FAILED rc=\$rc: \$desc (cmd: \$*)"
+  fi
+  return \$rc
+}
+
 detect_identity_device() {
   IDENTITY_DEVICE=""
   BY_LABEL="/dev/disk/by-label/\$IDENTITY_DEVICE_LABEL"
@@ -867,7 +901,9 @@ detect_identity_device() {
       return 0
     fi
     n=\$((n + 1))
-    [ "\$n" -lt "\$IDENTITY_DEVICE_RETRIES" ] && sleep "\$IDENTITY_DEVICE_RETRY_DELAY"
+    if [ "\$n" -lt "\$IDENTITY_DEVICE_RETRIES" ] && [ "\$IDENTITY_DEVICE_RETRY_DELAY" -gt 0 ] 2>/dev/null; then
+      sleep "\$IDENTITY_DEVICE_RETRY_DELAY"
+    fi
   done
 
   log_info "identity device not detected via /dev/disk/by-label/\$IDENTITY_DEVICE_LABEL; trying label resolver fallback"
@@ -888,7 +924,14 @@ detect_identity_device() {
     fi
   fi
   if [ -z "\$IDENTITY_DEVICE" ] && command -v blkid >/dev/null 2>&1; then
-    for cand in /dev/sd[a-z][0-9]* /dev/vd[a-z][0-9]* /dev/xvd[a-z][0-9]* /dev/nvme[0-9]*n[0-9]*p[0-9]* /dev/mmcblk[0-9]*p[0-9]*; do
+    # Whole-disk media without a partition table must be found as well, so the
+    # scan covers partitioned and partition-less device names alike.
+    for cand in \\
+/dev/sd[a-z][0-9]* /dev/sd[a-z] \\
+/dev/vd[a-z][0-9]* /dev/vd[a-z] \\
+/dev/xvd[a-z][0-9]* /dev/xvd[a-z] \\
+/dev/nvme[0-9]*n[0-9]*p[0-9]* /dev/nvme[0-9]*n[0-9] \\
+/dev/mmcblk[0-9]*p[0-9]* /dev/mmcblk[0-9]*; do
       [ -b "\$cand" ] || continue
       if blkid "\$cand" 2>/dev/null | grep -qF "LABEL=\"\$IDENTITY_DEVICE_LABEL\""; then
         IDENTITY_DEVICE="\$cand"
@@ -902,6 +945,37 @@ detect_identity_device() {
   return 1
 }
 
+cdrom_backing_device() {
+  # Print the block device that backs /cdrom according to the mount table.
+  # Never assume a fixed device name; resolve it at runtime instead.
+  dev=""
+  if [ ! -r "\$PROC_MOUNTS" ]; then
+    log_info "mount table unavailable for /cdrom resolution: \$PROC_MOUNTS"
+    return 1
+  fi
+  # Third variable swallows the remaining mount options (POSIX read appends
+  # leftover fields to the last variable).
+  while read -r m_src m_mnt _; do
+    if [ "\$m_mnt" = "/cdrom" ]; then
+      case "\$m_src" in
+        # Match absolute and sandbox-relative block device paths alike; the
+        # equality check below remains the actual safety decision.
+        */dev/*) dev="\$m_src"; break ;;
+      esac
+    fi
+  done <"\$PROC_MOUNTS"
+  [ -n "\$dev" ] || return 1
+  printf '%s\\n' "\$dev"
+  return 0
+}
+
+identity_is_install_medium() {
+  cdrom_dev="\$(cdrom_backing_device)" || return 1
+  id_real="\$(readlink -f "\$IDENTITY_DEVICE" 2>/dev/null || printf '%s' "\$IDENTITY_DEVICE")"
+  cd_real="\$(readlink -f "\$cdrom_dev" 2>/dev/null || printf '%s' "\$cdrom_dev")"
+  [ -n "\$id_real" ] && [ "\$id_real" = "\$cd_real" ]
+}
+
 # Mount the identity device read-only. In the early d-i initramfs context the
 # vfat/fat kernel module is often not loaded yet, so an auto-detect mount can
 # fail even though the device is present. Fall back to an explicit -t vfat
@@ -909,6 +983,15 @@ detect_identity_device() {
 # the installer initramfs are used (mount, lsmod, modprobe, grep).
 mount_identity_device() {
   err=""
+
+  # Hard safety boundary: never touch the medium that debian-installer itself
+  # is running from. If the labeled identity device resolves to the same block
+  # device as /cdrom, refuse to mount and fall back to the next source.
+  if identity_is_install_medium; then
+    cdrom_dev="\$(cdrom_backing_device)"
+    log_info "refusing to mount identity device: \$IDENTITY_DEVICE resolves to installation medium backing \$cdrom_dev"
+    return 1
+  fi
 
   if err="\$(mount -o ro "\$IDENTITY_DEVICE" /media/omnixys-identity 2>&1)"; then
     return 0
@@ -1119,10 +1202,9 @@ run_identity_step() {
   mkdir -p /var/lib/omnixys /media/omnixys-identity
   if [ "\$IDENTITY_SOURCE" != "usb-env" ]; then
     log_info "identity source selected: none; using build-time defaults"
-    run_identity_confirm_dialog || {
-      log_info "identity confirmation failed; aborting installation"
-      exit 1
-    }
+    if ! run_step "identity confirmation dialog" run_identity_confirm_dialog; then
+      abort_install "identity confirmation failed (source=none)"
+    fi
     if [ "\$IDENTITY_CONFIRM" = "true" ]; then
       apply_identity_debconf false
     fi
@@ -1133,12 +1215,15 @@ run_identity_step() {
   IDENTITY_FILE=""
   IDENTITY_MOUNTED="false"
   IDENTITY_LOADED="false"
+  IDENTITY_DETECTED="false"
   mkdir -p /var/lib/omnixys /media/omnixys-identity
 
   IDENTITY_DEVICE=""
-  detect_identity_device || true
-  if [ -n "\$IDENTITY_DEVICE" ]; then
-    if mount_identity_device; then
+  if run_step "identity device detection (label=\$IDENTITY_DEVICE_LABEL)" detect_identity_device; then
+    IDENTITY_DETECTED="true"
+  fi
+  if [ "\$IDENTITY_DETECTED" = "true" ]; then
+    if run_step "identity device mount (\$IDENTITY_DEVICE)" mount_identity_device; then
       IDENTITY_MOUNTED="true"
       log_info "identity device mount succeeded: \$IDENTITY_DEVICE"
       if [ -r "/media/omnixys-identity\$IDENTITY_FILE_PATH" ]; then
@@ -1146,10 +1231,10 @@ run_identity_step() {
         log_info "identity.env found on mounted device"
         log_info "USB identity selected"
       else
-        log_info "USB identity.env not found on mounted device"
+        log_info "USB identity.env not found on mounted device (looked for: /media/omnixys-identity\$IDENTITY_FILE_PATH)"
       fi
     else
-      log_info "identity device mount failed: \$IDENTITY_DEVICE"
+      log_info "identity device mount failed: \$IDENTITY_DEVICE (see mount attempts above)"
     fi
   fi
 
@@ -1160,28 +1245,28 @@ run_identity_step() {
 
   if [ -z "\$IDENTITY_FILE" ]; then
     if [ "\$IDENTITY_REQUIRED" = "true" ]; then
-      log_info "required identity file not found (IDENTITY_SOURCE=usb-env); aborting installation"
-      exit 1
+      log_info "required identity file not found (search summary: label=\$IDENTITY_DEVICE_LABEL detected=\$IDENTITY_DETECTED mounted=\$IDENTITY_MOUNTED usb-file=/media/omnixys-identity\$IDENTITY_FILE_PATH embedded=/cdrom\$IDENTITY_FILE_PATH)"
+      abort_install "required identity file \$IDENTITY_FILE_PATH not found (IDENTITY_SOURCE=usb-env, IDENTITY_DEVICE_LABEL=\$IDENTITY_DEVICE_LABEL, USB device detected=\$IDENTITY_DETECTED, embedded copy on /cdrom absent)"
     fi
     log_info "identity file not found; prompting for interactive input"
 
-    run_identity_confirm_dialog || {
-      log_info "identity confirmation failed; aborting installation"
-      exit 1
-    }
+    if ! run_step "identity confirmation dialog (no identity file)" run_identity_confirm_dialog; then
+      abort_install "identity confirmation failed (no identity file present)"
+    fi
 
     if [ "\$IDENTITY_CONFIRM" = "true" ]; then
       apply_identity_debconf true
     fi
   else
-    if ! cp "\$IDENTITY_FILE" /var/lib/omnixys/identity.env 2>>/var/log/installer/omnixys-early.log; then
+    if ! run_step "copy identity file from \$IDENTITY_FILE" cp "\$IDENTITY_FILE" /var/lib/omnixys/identity.env 2>>/var/log/installer/omnixys-early.log; then
       log_info "FAILED to copy identity file from \$IDENTITY_FILE"
       IDENTITY_FILE=""
-      [ "\$IDENTITY_REQUIRED" != "true" ] || exit 1
-      run_identity_confirm_dialog || {
-        log_info "identity confirmation failed; aborting installation"
-        exit 1
-      }
+      if [ "\$IDENTITY_REQUIRED" = "true" ]; then
+        abort_install "required identity file could not be copied from \$IDENTITY_FILE to /var/lib/omnixys/identity.env"
+      fi
+      if ! run_step "identity confirmation dialog (copy fallback)" run_identity_confirm_dialog; then
+        abort_install "identity confirmation failed (identity file copy failed)"
+      fi
       if [ "\$IDENTITY_CONFIRM" = "true" ]; then
         apply_identity_debconf false
       fi
@@ -1189,22 +1274,25 @@ run_identity_step() {
       log_info "identity sourcing start"
       if ! sh -n /var/lib/omnixys/identity.env 2>>/var/log/installer/omnixys-early.log; then
         log_info "identity sourcing failed"
-        [ "\$IDENTITY_REQUIRED" != "true" ] || exit 1
+        if [ "\$IDENTITY_REQUIRED" = "true" ]; then
+          abort_install "required identity file has invalid shell syntax: /var/lib/omnixys/identity.env"
+        fi
       else
         # shellcheck disable=SC1091
         if ! . /var/lib/omnixys/identity.env 2>>/var/log/installer/omnixys-early.log; then
           log_info "identity sourcing failed"
-          [ "\$IDENTITY_REQUIRED" != "true" ] || exit 1
+          if [ "\$IDENTITY_REQUIRED" = "true" ]; then
+            abort_install "required identity file could not be sourced: /var/lib/omnixys/identity.env"
+          fi
         else
           IDENTITY_LOADED="true"
           log_info "identity sourcing completed"
         fi
       fi
 
-      run_identity_confirm_dialog || {
-        log_info "identity confirmation failed; aborting installation"
-        exit 1
-      }
+      if ! run_step "identity confirmation dialog (identity loaded)" run_identity_confirm_dialog; then
+        abort_install "identity confirmation failed (identity file was loaded successfully)"
+      fi
 
       if [ "\$IDENTITY_LOADED" = "true" ] || [ "\$IDENTITY_CONFIRM" = "true" ]; then
         apply_identity_debconf true

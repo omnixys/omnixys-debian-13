@@ -56,6 +56,10 @@ export IDENTITY_FILE_PATH=/identity.env
 export IDENTITY_DEVICE_LABEL=OMNIXYS_ID
 export IDENTITY_CONFIRM=false
 
+# Keep device-detection retry loops instant inside the sandbox.
+export OMNIXYS_IDENTITY_RETRIES=1
+export OMNIXYS_IDENTITY_RETRY_DELAY=0
+
 export BACKEND_WORK_DIR="$SANDBOX"
 export GENERATED_DIR="$SANDBOX/generated"
 ensure_dir "$GENERATED_DIR"
@@ -90,7 +94,7 @@ else
   sh -n "$EARLY" "$NETWORK_LATE"
 fi
 if command -v shellcheck >/dev/null 2>&1; then
-  shellcheck "$EARLY" "$NETWORK_LATE"
+  shellcheck -e SC2329 "$EARLY" "$NETWORK_LATE"
 fi
 
 # --- Rendered preseed carries build-time defaults that the identity
@@ -114,8 +118,20 @@ grep -q 'OMNIXYS_SSH_PUBLIC_KEY' "$PRESEED"
 grep -q 'OMNIXYS_USERNAME' "$PRESEED"
 grep -q 'OMNIXYS_HOSTNAME' "$PRESEED"
 
+# Step tracing must exist so failures report step name, command and exit code.
+grep -q 'run_step()' "$EARLY"
+grep -q 'STEP $STEP_COUNT FAILED rc=' "$EARLY"
+grep -q 'abort_install()' "$EARLY"
+
+# Whole-disk media (no partition table) must remain discoverable via the
+# blkid fallback: partition-less device globs are mandatory.
+grep -qF "/dev/sd[a-z] \\" "$EARLY"
+grep -qF "/dev/vd[a-z] \\" "$EARLY"
+grep -qF "/dev/nvme[0-9]*n[0-9] \\" "$EARLY"
+grep -qF '/dev/mmcblk[0-9]*' "$EARLY"
+
 grep -q 'identity is required but missing' "$EARLY" && { echo "old abort message still present"; exit 1; }
-grep -q 'required identity file not found (IDENTITY_SOURCE=usb-env); aborting installation' "$EARLY"
+grep -q 'required identity file not found (search summary:' "$EARLY"
 grep -q 'prompting for interactive input' "$EARLY"
 if grep -Eq 'read[[:space:]].*-[^[:space:]]*t' "$EARLY"; then
   echo "generated early script uses non-POSIX read timeout" >&2
@@ -131,6 +147,13 @@ cat >"$SANDBOX/bin/debconf-set" <<'EOF'
 printf '%s\n' "$*" >> "$DEBCONF_LOG"
 EOF
 chmod +x "$SANDBOX/bin/debconf-set"
+# No-op logger stub: keeps notify_console best-effort logging away from the
+# host syslog while still exercising the logger code path.
+cat >"$SANDBOX/bin/logger" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod +x "$SANDBOX/bin/logger"
 export DEBCONF_LOG="$SANDBOX/debconf.log"
 export PATH="$SANDBOX/bin:$PATH"
 
@@ -145,8 +168,6 @@ sandboxize() {
     -e "s|/dev/console|$SANDBOX/dev/console|g" \
     -e "s|/dev/disk/by-label|$SANDBOX/dev/disk/by-label|g" \
     -e "s|IDENTITY_CONFIRM_TIMEOUT=5|IDENTITY_CONFIRM_TIMEOUT=1|g" \
-    -e "s|IDENTITY_DEVICE_RETRIES=5|IDENTITY_DEVICE_RETRIES=1|g" \
-    -e "s|IDENTITY_DEVICE_RETRY_DELAY=1|IDENTITY_DEVICE_RETRY_DELAY=0|g" \
     "$src" >"$dst"
   chmod +x "$dst"
 }
@@ -206,8 +227,13 @@ if [ "$rc" -ne 1 ]; then
   exit 1
 fi
 [[ ! -s "$DEBCONF_LOG" ]]
-grep -q 'required identity file not found (IDENTITY_SOURCE=usb-env); aborting installation' "$SANDBOX/var/log/installer/omnixys-early.log"
-grep -q 'identity device not found' "$SANDBOX/var/log/installer/omnixys-early.log"
+EARLY_LOG="$SANDBOX/var/log/installer/omnixys-early.log"
+grep -q 'required identity file not found (search summary:' "$EARLY_LOG"
+grep -q 'ABORT: required identity file /identity.env not found' "$EARLY_LOG"
+grep -q 'identity device not found' "$EARLY_LOG"
+# The step tracer must record the failed detection with its exit code.
+grep -qE 'STEP [0-9]+ start: identity device detection' "$EARLY_LOG"
+grep -qE 'STEP [0-9]+ FAILED rc=1: identity device detection' "$EARLY_LOG"
 
 # --- Case 3: usb-env + IDENTITY_REQUIRED=false + identity missing + IDENTITY_CONFIRM=false
 # --- -> continues with build defaults (exit 0), no overrides applied
@@ -704,8 +730,48 @@ rc=$?
 set -e
 [[ "$rc" -ne 0 ]]
 
+# --- Case 22: labeled identity device resolves to the /cdrom backing device
+# --- -> mount must be refused, installation falls back to embedded identity
+unset NETWORK_INTERFACE STATIC_IP STATIC_ROUTERS STATIC_DNS
+export IDENTITY_SOURCE=usb-env
+export IDENTITY_REQUIRED=true
+debian_render_early_script
+sandboxize "$EARLY" "$SANDBOX/case22-early.sh"
+reset_sandbox
+mkdir -p "$SANDBOX/dev/disk/by-label" "$SANDBOX/media/omnixys-identity" "$SANDBOX/cdrom"
+: >"$SANDBOX/dev/sda"
+ln -s ../../sda "$SANDBOX/dev/disk/by-label/OMNIXYS_ID"
+# Fixture mount table: /cdrom is backed by the very same device node.
+# The mountpoint must be the sandboxized path since sandboxize rewrites
+# every /cdrom occurrence inside the generated script.
+printf '%s %s iso9660 ro 0 0\n' "$SANDBOX/dev/sda" "$SANDBOX/cdrom" >"$SANDBOX/mounts"
+cat >"$SANDBOX/cdrom/identity.env" <<'EOF'
+OMNIXYS_HOSTNAME=omnixys-embedded-22
+OMNIXYS_DOMAIN=embedded.lab
+OMNIXYS_SSH_PUBLIC_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA case22-key@omnixys"
+OMNIXYS_PASSWORD_HASH='$6$case22$secret$hash'
+EOF
+set +e
+OMNIXYS_PROC_MOUNTS="$SANDBOX/mounts" run_early "$SANDBOX/case22-early.sh"
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then
+  echo "case22: expected embedded fallback to succeed, got exit $rc" >&2
+  cat "$SANDBOX/var/log/installer/omnixys-early.log" >&2
+  exit 1
+fi
+CASE22_LOG="$SANDBOX/var/log/installer/omnixys-early.log"
+if ! grep -q 'refusing to mount identity device' "$CASE22_LOG"; then
+  echo "case22: refusal message missing from early log" >&2
+  cat "$CASE22_LOG" >&2
+  exit 1
+fi
+grep -qF 'netcfg/get_hostname omnixys-embedded-22' "$DEBCONF_LOG"
+
+unset OMNIXYS_PROC_MOUNTS
+
 unset NETWORK_INTERFACE STATIC_IP STATIC_ROUTERS STATIC_DNS
 debian_render_network_late_script
-shellcheck "$EARLY" "$NETWORK_LATE"
+shellcheck -e SC2329 "$EARLY" "$NETWORK_LATE"
 
 echo "Identity mechanism tests passed"

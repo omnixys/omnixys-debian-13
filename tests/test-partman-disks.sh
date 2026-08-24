@@ -43,7 +43,7 @@ EOF
 chmod +x "$BIN/list-devices" "$BIN/debconf-set"
 
 render_partman() {
-  GENERATED_DIR="$SANDBOX/generated-$1-$2"
+  GENERATED_DIR="$SANDBOX/generated-${5:-$1}-$2"
   PARTITION_MODE="$1"
   TARGET_DISK_MODE="$2"
   TARGET_DISK="${3:-}"
@@ -343,5 +343,75 @@ if run_partman; then
   exit 1
 fi
 unset DEBCONF_FAIL_KEY
+
+# --- Device-order matrix: enumeration order and the position of the install
+# --- medium among internal disks must not influence protection or selection.
+order_matrix_case() {
+  local label="$1" medium_disk="$2" expected="$3"
+  shift 3
+  local -a internals=("$@")
+  reset_fixture "order-$label"
+  local disk
+  for disk in "${internals[@]}"; do
+    add_disk "$disk" 0 pci
+  done
+  add_disk "$medium_disk" 0 usb-install
+  add_partition "${medium_disk}1" "$medium_disk"
+  printf '/dev/%s1 /cdrom iso9660 ro 0 0\n' "$medium_disk" >"$MOUNTS"
+  # The medium is always listed first to prove that enumeration order,
+  # not position, decides the outcome.
+  DISK_LIST="/dev/$medium_disk\\n"
+  for disk in "${internals[@]}"; do
+    DISK_LIST+="/dev/$disk\\n"
+  done
+  render_partman erase auto '' '' "$label"
+  run_partman
+  [[ "$(wc -l <"$WIPE_LOG" | tr -d ' ')" -eq "${#internals[@]}" ]]
+  for disk in "${internals[@]}"; do
+    [[ "$(grep -Fxc "/dev/$disk" "$WIPE_LOG")" -eq 1 ]]
+  done
+  if grep -Fxq "/dev/$medium_disk" "$WIPE_LOG"; then
+    echo "matrix[$label]: install medium was wiped: /dev/$medium_disk"
+    exit 1
+  fi
+  grep -Fxq "partman-auto/disk /dev/$expected" "$DEBCONF_LOG"
+  grep -Fxq "grub-installer/bootdev /dev/$expected" "$DEBCONF_LOG"
+  if grep -Fq 'USB sysfs path' "$PARTMAN_LOG" && ! grep -qF "  /dev/$medium_disk -> parent of /cdrom" "$PARTMAN_LOG"; then
+    echo "matrix[$label]: medium exclusion reason missing for /dev/$medium_disk"
+    exit 1
+  fi
+}
+
+order_matrix_case medium_on_sda sda nvme0n1 vda nvme0n1
+order_matrix_case medium_on_sdb sdb nvme0n1 sda nvme0n1
+order_matrix_case medium_on_sdc sdc vda sda vda
+
+# --- Identity medium inserted mid-installation must be recognized on the fly
+# --- and protected by later tooling runs of the very same script.
+reset_fixture late_identity
+add_disk vda 0 pci
+DISK_LIST='/dev/vda\n'
+render_partman erase auto
+# First pass: no identity medium exists yet, the internal disk is selected.
+run_partman
+grep -Fxq 'partman-auto/disk /dev/vda' "$DEBCONF_LOG"
+[[ "$(grep -Fxc '/dev/vda' "$WIPE_LOG")" -eq 1 ]]
+
+# An operator inserts an OMNIXYS_ID-labeled USB disk while the installer runs.
+add_disk sdd 0 usb2
+add_partition sdd1 sdd
+ln -s ../../sdd1 "$DEV/disk/by-label/OMNIXYS_ID"
+DISK_LIST='/dev/sdd\n/dev/vda\n'
+: >"$WIPE_LOG"
+: >"$DEBCONF_LOG"
+# Re-run the identical, already-rendered script against the mutated system.
+run_partman
+if grep -Fxq '/dev/sdd' "$WIPE_LOG"; then
+  echo "late-inserted identity medium was wiped: /dev/sdd"
+  exit 1
+fi
+[[ "$(grep -Fxc '/dev/vda' "$WIPE_LOG")" -eq 1 ]]
+grep -Fxq 'partman-auto/disk /dev/vda' "$DEBCONF_LOG"
+grep -qF '  /dev/sdd -> OMNIXYS_ID label' "$PARTMAN_LOG"
 
 echo "Partman disk safety tests passed"
