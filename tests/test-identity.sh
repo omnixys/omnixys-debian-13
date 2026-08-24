@@ -96,6 +96,10 @@ fi
 if command -v shellcheck >/dev/null 2>&1; then
   shellcheck -e SC2329 "$EARLY" "$NETWORK_LATE"
 fi
+# Older shellcheck versions (e.g. 0.9.0 on CI) flag run_step-invoked helpers as
+# SC2317 unreachable unless the generated script carries the disable pragma.
+grep -q '# shellcheck disable=SC2317' "$EARLY" \
+  || { echo "generated early script missing SC2317 disable pragma" >&2; exit 1; }
 
 # --- Rendered preseed carries build-time defaults that the identity
 # --- mechanism overrides at runtime (HOSTNAME, DOMAIN, FULLNAME,

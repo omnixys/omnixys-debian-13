@@ -826,6 +826,7 @@ debian_render_early_script() {
   identity_static_dns="$(shell_single_quote "${STATIC_DNS:-}")"
   cat >"$out" <<EOF
 #!/bin/sh
+# shellcheck disable=SC2317 # helper functions are invoked indirectly via run_step "\$@"
 mkdir -p /var/log/installer
 exec >/var/log/installer/omnixys-early.log 2>&1
 
