@@ -3,6 +3,31 @@
 All notable changes in this project will be documented in this file.
 
 
+## [1.2.5](https://github.com/omnixys/omnixys-debian-13/compare/v1.2.4...v1.2.5) (2026-08-24)
+
+### Config
+
+* **Config:** switch homelab and lab profiles to automatic disk selection ([](https://github.com/omnixys/omnixys-debian-13/commit/20fa8236c3c52d1e31fdc315445ed02ec488384c))
+
+### Installer
+
+* **Installer:** enable safe VirtIO auto partitioning ([](https://github.com/omnixys/omnixys-debian-13/commit/fdb602393813ab32ac57d68409383a3faaf2fb9e))
+* **Installer:** harden preseed entry scripts against install-medium collisions ([](https://github.com/omnixys/omnixys-debian-13/commit/e2f803dfe6d85b7c9278c894b61fdffe17410271))
+* **Installer:** rebuild ISO via cross-image xorriso remaster with completeness gate ([](https://github.com/omnixys/omnixys-debian-13/commit/de5d407bf52347fadf553cfb66aef57f017e6d64))
+* **Installer:** silence SC2317 false positive in generated early script ([](https://github.com/omnixys/omnixys-debian-13/commit/6e1d01008a282d3a3f86e2926ea2e4163c322f78))
+
+### Other
+
+* **Other:** Update .gitignore ([](https://github.com/omnixys/omnixys-debian-13/commit/046f7d8ab782009b44c37d371163940d62da18db))
+
+### Readme
+
+* **Readme:** add troubleshooting for installer logs, builder gates, identity USB ([](https://github.com/omnixys/omnixys-debian-13/commit/cda07ed54805addee09688ae04d0f2ec7f68093e))
+
+### Vm
+
+* **Vm:** restore atomic VirtIO partitioning ([](https://github.com/omnixys/omnixys-debian-13/commit/f744dc089d9f3d3426f76e436b8ac38a132485cb))
+
 ## [1.2.4](https://github.com/omnixys/omnixys-debian-13/compare/v1.2.3...v1.2.4) (2026-08-21)
 
 ### Installer
