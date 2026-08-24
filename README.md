@@ -411,3 +411,43 @@ This is the first runtime identity slice for Debian. The broader backend-agnosti
 
 For physical installs, write the generated ISO in raw/block mode (for example Rufus DD mode or balenaEtcher).
 Using extraction-style ISO modes can break `cdrom-detect` and produce "not a Debian CD" errors.
+
+## Troubleshooting
+
+### Installer logs
+
+The `early_command` writes a step-by-step trace to `/var/log/installer/omnixys-early.log`
+(inside the installer environment; also copied to the installed system under
+`/var/log/installer/`). Every phase logs via `STEP`/`INFO`/`WARN`/`ERROR` lines, and fatal
+problems end with an explicit `ABORT:` line. When an install fails, fetch this file first —
+it names the exact phase and reason.
+
+### Symptoms of a wiped install medium during installation
+
+If `/cdrom` is empty, `/dists/trixie/Release` is reported missing, or the install device
+(e.g. `/dev/sda`) disappears mid-install, the boot medium itself was overwritten while the
+installer was running. Current builds are hardened against this (partition-freie device
+Globs, Identity-Mount-Antikollision, `auto` disk mode excludes the install medium), so
+rebuild the ISO with the current builder instead of debugging the old image.
+
+### Builder gates
+
+The builder refuses to ship a broken remaster and fails loudly before writing:
+
+- `Work tree completeness verified` / gate failure naming missing paths: every path of the
+  source ISO must still exist in the work tree after patching. A missing-path error means
+  build-time patching deleted something; fix the patching logic, never bypass the gate.
+- `Remaster structure verified`: post-build check for suite metadata (`/dists/trixie/Release`),
+  preserved source paths, and all Omnixys files.
+- Remastering uses a cross-image xorriso update (`-indev SOURCE -outdev OUTPUT -boot_image any
+  replay -update_r`) with El Torito replay, which keeps BIOS/EFI boot structures intact on
+  amd64 and arm64 without growing the source image in place.
+
+### Identity USB requirements
+
+The identity stick must be a single partition with filesystem label exactly matching the
+profile value (`OMNIXYS_ID`, e.g. created with `mkfs.vfat -n OMNIXYS_ID`). The early script
+refuses to mount a by-label device whose resolved backing node equals the install medium and
+falls back to embedded identity when configured. Retry behavior is controlled by
+`OMNIXYS_IDENTITY_RETRIES` / `OMNIXYS_IDENTITY_RETRY_DELAY` header overrides in the
+generated script (defaults suit physical media spin-up delays).
