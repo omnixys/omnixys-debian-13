@@ -43,6 +43,19 @@ debian_validate_arch() {
   esac
 }
 
+debian_validate_installer_version() {
+  # Keep INSTALLER_VERSION as the sole version source. The ISO volume ID uses
+  # only its numeric SemVer core; pre-release and build metadata are allowed.
+  local version="$INSTALLER_VERSION" base volume_id
+  if [[ ! "$version" =~ ^((0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*))(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+    die "Invalid INSTALLER_VERSION: $version (expected SemVer MAJOR.MINOR.PATCH with optional pre-release/build metadata)"
+  fi
+
+  base="${BASH_REMATCH[1]}"
+  volume_id="OMNIXYS${base//./}"
+  [[ ${#volume_id} -le 32 ]] || die "Derived ISO volume ID exceeds 32 characters: $volume_id"
+}
+
 debian_validate_filesystem() {
   case "$FILESYSTEM" in
     ext4|xfs|btrfs) ;;
@@ -266,6 +279,7 @@ debian_validate() {
   debian_require_var REBOOT_AFTER_INSTALL
 
   debian_validate_hostname
+  debian_validate_installer_version
   debian_check_tooling
   debian_validate_timezone
   debian_validate_locale

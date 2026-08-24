@@ -97,6 +97,11 @@ Framework level:
 - `ARCHES=amd64,arm64` (optional multi-arch build list)
 - `INSTALLER_VERSION=1.0.0`
 
+`INSTALLER_VERSION` also determines the ISO Volume ID and the boot-menu title.
+For example, `1.2.1`, `1.2.1-beta.1`, and `1.2.1+build.5` produce Volume ID
+`OMNIXYS121`; the visible title is `Omnixys Debian Installer 1.2.1` (including
+metadata when present).
+
 Debian backend:
 
 - `DEBIAN_MAJOR=13`
@@ -442,6 +447,15 @@ The builder refuses to ship a broken remaster and fails loudly before writing:
 - Remastering uses a cross-image xorriso update (`-indev SOURCE -outdev OUTPUT -boot_image any
   replay -update_r`) with El Torito replay, which keeps BIOS/EFI boot structures intact on
   amd64 and arm64 without growing the source image in place.
+
+### Installer media and identity labels
+
+These labels identify different things and are intentionally independent:
+
+- The hardware boot-menu name (for example `UEFI: INTENSO`) is supplied by the USB device and cannot be changed by the ISO.
+- The installer ISO Volume ID is derived from `INSTALLER_VERSION` (for example `OMNIXYS121`).
+- The boot menu shows `Omnixys Debian Installer <INSTALLER_VERSION>` and its two main options are `Install Omnixys (graphical)` and `Install Omnixys`.
+- The separate identity USB keeps its filesystem label from `IDENTITY_DEVICE_LABEL` (normally `OMNIXYS_ID`).
 
 ### Identity USB requirements
 

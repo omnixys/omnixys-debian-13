@@ -160,6 +160,22 @@ debian_verify() {
   fi
 }
 
+debian_resolve_iso_branding() {
+  # Validation happens before build/package in debian_validate(). Keep this
+  # defensive check here as well because builder helpers are unit-testable and
+  # must never emit an invalid ISO volume ID.
+  local version="$INSTALLER_VERSION" base
+  if [[ ! "$version" =~ ^((0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*))(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+    die "Invalid INSTALLER_VERSION: $version (expected SemVer MAJOR.MINOR.PATCH with optional pre-release/build metadata)"
+  fi
+
+  base="${BASH_REMATCH[1]}"
+  ISO_VOLUME_ID="OMNIXYS${base//./}"
+  [[ ${#ISO_VOLUME_ID} -le 32 ]] || die "Derived ISO volume ID exceeds 32 characters: $ISO_VOLUME_ID"
+  BOOT_MENU_TITLE="Omnixys Debian Installer $INSTALLER_VERSION"
+  info "ISO volume ID: $ISO_VOLUME_ID"
+}
+
 debian_patch_boot_configs() {
   local target_dir="$1"
   local params
@@ -184,6 +200,96 @@ debian_patch_boot_configs() {
   patch_file "$target_dir/boot/grub/grub.cfg"
   patch_file "$target_dir/isolinux/txt.cfg"
   patch_file "$target_dir/isolinux/isolinux.cfg"
+
+  patch_grub_menu() {
+    local file="$1"
+    [[ -f "$file" ]] || return 0
+
+    awk '
+      {
+        line = $0
+        sub(/'"'"'Graphical install'"'"'/, "'"'"'Install Omnixys (graphical)'"'"'", line)
+        sub(/'"'"'Install'"'"'/, "'"'"'Install Omnixys'"'"'", line)
+        print line
+      }
+    ' "$file" >"$file.tmp"
+    mv "$file.tmp" "$file"
+  }
+
+  patch_grub_menu "$target_dir/boot/grub/grub.cfg"
+
+  # Debian's arm64 GRUB menu has no theme/header. A one-line title remains
+  # visible above the text-mode menu while preserving every menu entry.
+  if [[ "$ARCH" == "arm64" && -f "$target_dir/boot/grub/grub.cfg" ]] && ! grep -Fq "$BOOT_MENU_TITLE" "$target_dir/boot/grub/grub.cfg"; then
+    {
+      printf "echo '%s'\n" "$BOOT_MENU_TITLE"
+      cat "$target_dir/boot/grub/grub.cfg"
+    } >"$target_dir/boot/grub/grub.cfg.tmp"
+    mv "$target_dir/boot/grub/grub.cfg.tmp" "$target_dir/boot/grub/grub.cfg"
+  fi
+
+  patch_grub_theme() {
+    local file="$1"
+    [[ -f "$file" ]] || return 0
+    grep -q 'Debian GNU/Linux' "$file" || return 0
+
+    awk -v title="$BOOT_MENU_TITLE" '
+      {
+        line = $0
+        if (line ~ /^[[:space:]]*title-text: "Debian GNU\/Linux /) {
+          sub(/"Debian GNU\/Linux [^"]*"/, "\"" title "\"", line)
+        }
+        if (line ~ /text = "Debian GNU\/Linux UEFI Installer menu"/) {
+          sub(/"Debian GNU\/Linux UEFI Installer menu"/, "\"" title "\"", line)
+        }
+        print line
+      }
+    ' "$file" >"$file.tmp"
+    mv "$file.tmp" "$file"
+  }
+
+  local theme_file
+  if [[ -d "$target_dir/boot/grub/theme" ]]; then
+    while IFS= read -r -d '' theme_file; do
+      patch_grub_theme "$theme_file"
+    done < <(find "$target_dir/boot/grub/theme" -type f -print0)
+  fi
+
+  patch_isolinux_menu() {
+    local file="$1"
+    [[ -f "$file" ]] || return 0
+
+    awk -v title="$BOOT_MENU_TITLE" '
+      {
+        if ($0 ~ /^menu title .*Debian GNU\/Linux installer menu \(BIOS mode\)/) {
+          print "menu title " title " (BIOS mode)"
+        } else {
+          print
+        }
+      }
+    ' "$file" >"$file.tmp"
+    mv "$file.tmp" "$file"
+  }
+
+  patch_isolinux_label() {
+    local file="$1" old_label="$2" new_label="$3"
+    [[ -f "$file" ]] || return 0
+    awk -v old_label="$old_label" -v new_label="$new_label" '
+      {
+        line = $0
+        position = index(line, old_label)
+        if (position > 0) {
+          line = substr(line, 1, position - 1) new_label substr(line, position + length(old_label))
+        }
+        print line
+      }
+    ' "$file" >"$file.tmp"
+    mv "$file.tmp" "$file"
+  }
+
+  patch_isolinux_menu "$target_dir/isolinux/menu.cfg"
+  patch_isolinux_label "$target_dir/isolinux/gtk.cfg" '^Graphical install' '^Install Omnixys (graphical)'
+  patch_isolinux_label "$target_dir/isolinux/txt.cfg" '^Install' '^Install Omnixys'
 }
 
 debian_detect_bootloader_files() {
@@ -387,10 +493,13 @@ debian_package() {
   ISO_OUTPUT_PATH="$ROOT_DIR/output/omnixys-debian-${DEBIAN_MAJOR}-${ARCH}-auto.iso"
   local metadata_copy="$ROOT_DIR/logs/install.log"
 
+  debian_resolve_iso_branding
+
   ensure_dir "$ROOT_DIR/output"
 
   if [[ "$DRY_RUN" == "true" ]]; then
-    info "[dry-run] bootloader files to patch: boot/grub/grub.cfg, isolinux/txt.cfg, isolinux/isolinux.cfg"
+    info "[dry-run] bootloader files to patch: GRUB, GRUB themes, ISOLINUX"
+    info "[dry-run] ISO volume ID: $ISO_VOLUME_ID"
     info "[dry-run] would package output ISO: $ISO_OUTPUT_PATH"
     return 0
   fi
@@ -446,6 +555,7 @@ debian_package() {
   run_cmd xorriso \
     -indev "$ISO_SOURCE_PATH" \
     -outdev "$ISO_OUTPUT_PATH" \
+    -volid "$ISO_VOLUME_ID" \
     -boot_image any replay \
     -update_r "$ISO_TREE_DIR" / \
     -commit \

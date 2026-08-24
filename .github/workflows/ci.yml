@@ -66,6 +66,7 @@ jobs:
           chmod +x tests/test-renderer-template.sh
           chmod +x tests/test-validator-rules.sh
           chmod +x tests/test-builder-remaster.sh
+          chmod +x tests/test-iso-branding.sh
           chmod +x tests/test-identity.sh
           chmod +x tests/test-builder-embedding.sh
           chmod +x tests/test-partman-disks.sh
@@ -76,6 +77,7 @@ jobs:
           ./tests/test-renderer-template.sh
           ./tests/test-validator-rules.sh
           ./tests/test-builder-remaster.sh
+          ./tests/test-iso-branding.sh
           ./tests/test-identity.sh
           ./tests/test-builder-embedding.sh
           ./tests/test-partman-disks.sh

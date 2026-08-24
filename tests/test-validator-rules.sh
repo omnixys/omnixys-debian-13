@@ -14,6 +14,7 @@ grep -q "Unsupported IDENTITY_SOURCE" "$VALIDATOR"
 grep -q "IDENTITY_FILE_PATH must start with /: " "$VALIDATOR"
 grep -q "IDENTITY_DEVICE_LABEL must not be empty when IDENTITY_SOURCE=usb-env" "$VALIDATOR"
 grep -q "debian_validate_network_config()" "$VALIDATOR"
+grep -q "debian_validate_installer_version()" "$VALIDATOR"
 
 bash -c '
   die() { echo "$*" >&2; exit 1; }
@@ -45,6 +46,25 @@ if bash -c '
   debian_validate_network_config
 ' _ "$VALIDATOR" >/dev/null 2>&1; then
   echo "partial static network configuration unexpectedly validated" >&2
+  exit 1
+fi
+
+for version in 1.2.1 1.2.1-beta.1 1.2.1+build.5; do
+  bash -c '
+    die() { echo "$*" >&2; exit 1; }
+    source "$1"
+    INSTALLER_VERSION="$2"
+    debian_validate_installer_version
+  ' _ "$VALIDATOR" "$version"
+done
+
+if bash -c '
+  die() { echo "$*" >&2; exit 1; }
+  source "$1"
+  INSTALLER_VERSION=foo
+  debian_validate_installer_version
+' _ "$VALIDATOR" >/dev/null 2>&1; then
+  echo "invalid INSTALLER_VERSION unexpectedly validated" >&2
   exit 1
 fi
 
