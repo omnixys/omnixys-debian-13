@@ -3,6 +3,16 @@
 All notable changes in this project will be documented in this file.
 
 
+## [2.0.0](https://github.com/omnixys/omnixys-debian-13/compare/v1.2.5...v2.0.0) (2026-08-24)
+
+### Installer
+
+* **Installer:** brand boot menu with release version ([](https://github.com/omnixys/omnixys-debian-13/commit/7d6f75ff57add0504260ddd8179dfde647ce6762))
+
+### Other
+
+* **Other:** Merge branch 'main' of https://github.com/omnixys/omnixys-debian-13 ([](https://github.com/omnixys/omnixys-debian-13/commit/63f613f37df10204c90fc6b974f369ee483edbb0))
+
 ## [1.2.5](https://github.com/omnixys/omnixys-debian-13/compare/v1.2.4...v1.2.5) (2026-08-24)
 
 ### Config
