@@ -71,6 +71,7 @@ jobs:
           chmod +x tests/test-partman-disks.sh
           chmod +x tests/test-partman-recipe.sh
           chmod +x tests/test-workflow-gates.sh
+          chmod +x tests/test-iso-structure.sh
           ./tests/test-installer-debian-preseed.sh
           ./tests/test-renderer-template.sh
           ./tests/test-validator-rules.sh
@@ -80,6 +81,7 @@ jobs:
           ./tests/test-partman-disks.sh
           ./tests/test-partman-recipe.sh
           ./tests/test-workflow-gates.sh
+          ./tests/test-iso-structure.sh
 
   test-modules:
     needs: test-core

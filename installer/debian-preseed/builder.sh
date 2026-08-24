@@ -262,6 +262,127 @@ debian_assert_no_identity_in_iso() {
   info "Release gate passed: no /identity.env baked into ISO ($ISO_OUTPUT_PATH)"
 }
 
+debian_iso_listing() {
+  # $1 = ISO path. Prints sorted absolute paths of every object in the ISO
+  # tree. The implicit root entry ("/") is dropped so the output matches
+  # debian_tree_listing and comparisons stay deterministic. xorriso quotes
+  # entries with single quotes; strip them as well.
+  xorriso -indev "$1" -find / -- 2>/dev/null | tr -d "'" | awk 'NF && $0 != "/"' | LC_ALL=C sort
+}
+
+debian_tree_listing() {
+  # $1 = work-tree directory. Prints sorted absolute paths (leading slash) of
+  # every object in the tree, matching debian_iso_listing output format so the
+  # two listings can be compared directly.
+  ( cd "$1" && LC_ALL=C find . -mindepth 1 -print ) | sed 's|^\./|/|' | tr -d "'" | awk 'NF' | LC_ALL=C sort
+}
+
+debian_verify_work_tree_completeness() {
+  # Guard against silent remaster corruption: xorriso -update_r mirrors the
+  # work tree, i.e. every ISO object without a disk counterpart is DELETED
+  # from the image. An incomplete extraction would therefore shrink the
+  # installer medium unnoticed. This check refuses to update unless the work
+  # tree contains every path of the source ISO, so the update pass can only
+  # ever add or refresh Omnixys files.
+  [[ "$DRY_RUN" == "true" ]] && return 0
+
+  local tmp_dir total
+  tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/omnixys-tree-check.XXXXXX")"
+  tfail() { rm -rf "$tmp_dir"; die "$*"; }
+
+  debian_iso_listing "$ISO_SOURCE_PATH" >"$tmp_dir/src.txt"
+  debian_tree_listing "$ISO_TREE_DIR" >"$tmp_dir/tree.txt"
+
+  [[ -s "$tmp_dir/src.txt" ]] || tfail "Work tree check failed: cannot list source ISO: $ISO_SOURCE_PATH"
+  [[ -s "$tmp_dir/tree.txt" ]] || tfail "Work tree check failed: work tree is empty: $ISO_TREE_DIR"
+
+  comm -23 "$tmp_dir/src.txt" "$tmp_dir/tree.txt" >"$tmp_dir/missing.txt"
+  if [[ -s "$tmp_dir/missing.txt" ]]; then
+    total="$(wc -l <"$tmp_dir/missing.txt" | tr -d ' ')"
+    {
+      echo "Extraction into work tree is incomplete ($total path(s)); refusing to remaster."
+      echo "xorriso -update_r would delete these paths from the final ISO:"
+      head -n 20 "$tmp_dir/missing.txt"
+    } >&2
+    tfail "Work tree check failed: $total source path(s) missing from $ISO_TREE_DIR (first: $(head -n 3 "$tmp_dir/missing.txt" | tr '\n' ' '))"
+  fi
+
+  rm -rf "$tmp_dir"
+  info "Work tree completeness verified: every source ISO path is present"
+}
+
+debian_verify_iso_structure() {
+  # Structural release gate for the remastered ISO. The final image must:
+  #   1. contain every path of the source Debian ISO (remaster extends, never
+  #      replaces),
+  #   2. keep the Debian repository layout required by debian-installer
+  #      (/dists/<suite>/Release, /pool payload, /.disk/info),
+  #   3. keep all bootloader configs and injected Omnixys files, where the
+  #      injected shell scripts must remain syntactically valid.
+  # The suite (e.g. trixie) is derived dynamically from the source listing.
+  [[ "$DRY_RUN" == "true" ]] && return 0
+  [[ -f "$ISO_SOURCE_PATH" ]] || die "Structure verification failed: source ISO missing: $ISO_SOURCE_PATH"
+  [[ -f "$ISO_OUTPUT_PATH" ]] || die "Structure verification failed: output ISO missing: $ISO_OUTPUT_PATH"
+
+  local tmp_dir suite release_path total cfg script_name extract_dir
+  tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/omnixys-iso-verify.XXXXXX")"
+  vfail() { rm -rf "$tmp_dir"; die "$*"; }
+
+  debian_iso_listing "$ISO_SOURCE_PATH" >"$tmp_dir/src.txt"
+  debian_iso_listing "$ISO_OUTPUT_PATH" >"$tmp_dir/out.txt"
+
+  [[ -s "$tmp_dir/src.txt" ]] || vfail "Structure verification failed: cannot list source ISO: $ISO_SOURCE_PATH"
+  [[ -s "$tmp_dir/out.txt" ]] || vfail "Structure verification failed: cannot list output ISO: $ISO_OUTPUT_PATH"
+
+  # 1. Every source path must survive the remaster.
+  comm -23 "$tmp_dir/src.txt" "$tmp_dir/out.txt" >"$tmp_dir/missing.txt"
+  if [[ -s "$tmp_dir/missing.txt" ]]; then
+    total="$(wc -l <"$tmp_dir/missing.txt" | tr -d ' ')"
+    {
+      echo "Remastered ISO lost content from source ISO ($total path(s)); first entries:"
+      head -n 20 "$tmp_dir/missing.txt"
+    } >&2
+    vfail "Remaster verification failed: $total source path(s) missing from $ISO_OUTPUT_PATH"
+  fi
+
+  # 2. Debian installer repository layout must be intact.
+  suite="$(awk -F/ '$2 == "dists" && $3 != "" && $4 == "Release" { print $3; exit }' "$tmp_dir/src.txt")"
+  [[ -n "$suite" ]] || vfail "Source ISO exposes no /dists/<suite>/Release; cannot verify repository layout"
+  release_path="/dists/$suite/Release"
+  grep -Fxq "$release_path" "$tmp_dir/out.txt" \
+    || vfail "Remastered ISO lacks required repository file: $release_path"
+  grep -Fxq "/.disk/info" "$tmp_dir/out.txt" \
+    || vfail "Remastered ISO lacks required installer marker: /.disk/info"
+  grep -q "^/pool/" "$tmp_dir/out.txt" \
+    || vfail "Remastered ISO lacks /pool repository payload"
+
+  # 3a. Bootloader configs must be present.
+  for cfg in ${BOOTLOADER_FILES[@]+"${BOOTLOADER_FILES[@]}"}; do
+    grep -Fxq "/$cfg" "$tmp_dir/out.txt" || vfail "Remastered ISO lacks bootloader config: /$cfg"
+  done
+
+  # 3b. Injected Omnixys files must be present and the scripts must stay
+  # executable-by-interpreter (they are invoked via sh, so presence plus a
+  # clean syntax check is the meaningful contract).
+  local inject_file
+  for inject_file in preseed.cfg omnixys-installer-info.txt omnixys-early.sh omnixys-partman.sh omnixys-network-late.sh omnixys-identity.templates; do
+    grep -Fxq "/$inject_file" "$tmp_dir/out.txt" || vfail "Remastered ISO lacks injected file: /$inject_file"
+  done
+
+  extract_dir="$tmp_dir/extract"
+  ensure_dir "$extract_dir"
+  for script_name in omnixys-early.sh omnixys-partman.sh omnixys-network-late.sh; do
+    xorriso -osirrox on -indev "$ISO_OUTPUT_PATH" -extract "/$script_name" "$extract_dir/$script_name" >/dev/null 2>&1 \
+      || vfail "Remastered ISO: cannot extract /$script_name for validation"
+    if ! sh -n "$extract_dir/$script_name" >/dev/null 2>&1; then
+      vfail "Remastered ISO: /$script_name fails shell syntax check"
+    fi
+  done
+
+  rm -rf "$tmp_dir"
+  info "Remaster structure verified: suite=$suite, all source paths preserved, Omnixys files present"
+}
+
 debian_package() {
   ISO_OUTPUT_PATH="$ROOT_DIR/output/omnixys-debian-${DEBIAN_MAJOR}-${ARCH}-auto.iso"
   local metadata_copy="$ROOT_DIR/logs/install.log"
@@ -306,7 +427,22 @@ debian_package() {
   step "Patching boot configuration"
   debian_patch_boot_configs "$ISO_TREE_DIR"
 
-  step "Rebuilding remastered ISO"
+  # Refuse to remaster unless the work tree is provably complete (see
+  # debian_verify_work_tree_completeness for the deletion-vector rationale).
+  step "Verifying work tree completeness against source ISO"
+  debian_verify_work_tree_completeness
+
+  if [[ "$DRY_RUN" != "true" ]]; then
+    # xorriso refuses a non-empty -outdev media; always start with a clean
+    # output file since the remaster below writes a complete new image.
+    run_cmd rm -f "$ISO_OUTPUT_PATH"
+  fi
+
+  step "Updating remastered ISO with Omnixys files"
+  # Cross-image remaster: xorriso copies the source image into the output
+  # file while applying the tree updates. The completeness guard above
+  # guarantees the tree mirrors every source path, so this pass can only add
+  # or refresh Omnixys files and never drops installer content.
   run_cmd xorriso \
     -indev "$ISO_SOURCE_PATH" \
     -outdev "$ISO_OUTPUT_PATH" \
@@ -316,6 +452,9 @@ debian_package() {
     -end
 
   debian_assert_no_identity_in_iso
+
+  step "Verifying remastered ISO structure"
+  debian_verify_iso_structure
 
   cp "$GENERATED_DIR/installer-info.txt" "$metadata_copy"
   cp "$GENERATED_DIR/installer-info.txt" "$ARTIFACTS_DIR/installer-info.txt"
