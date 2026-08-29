@@ -3,6 +3,12 @@
 All notable changes in this project will be documented in this file.
 
 
+## [2.1.0](https://github.com/omnixys/omnixys-debian-13/compare/v2.0.0...v2.1.0) (2026-08-29)
+
+### Installer
+
+* **Installer:** select smallest internal disk as system disk ([](https://github.com/omnixys/omnixys-debian-13/commit/3e70438ce640d4da633ad9bcc9a7361ce53c9a19))
+
 ## [2.0.0](https://github.com/omnixys/omnixys-debian-13/compare/v1.2.5...v2.0.0) (2026-08-24)
 
 ### Installer
