@@ -610,23 +610,38 @@ collect_internal_pool() {
   [ -n "$INTERNAL_POOL" ] || fail "No eligible internal installation disk found"
 }
 
-pick_first_match() {
-  prefix="$1"
-  printf '%s\n' "$INTERNAL_POOL" | while IFS= read -r disk; do
-    case "$disk" in
-      "$prefix"*) printf '%s\n' "$disk"; break ;;
-    esac
-  done
+disk_size_sectors() {
+  disk="$1"
+  base="${disk#/dev/}"
+  size_file="${SYS_BLOCK_ROOT}/${base}/size"
+
+  [ -r "$size_file" ] || return 1
+
+  size="$(cat "$size_file")"
+  case "$size" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+
+  [ "$size" -gt 0 ] || return 1
+
+  printf '%s\n' "$size"
 }
 
 select_system_disk() {
   TARGET=""
-  for prefix in /dev/nvme /dev/vd /dev/sd /dev/xvd /dev/mmcblk; do
-    TARGET="$(pick_first_match "$prefix")"
-    [ -z "$TARGET" ] || break
+  BEST=""
+  for disk in $INTERNAL_POOL; do
+    [ -n "$disk" ] || continue
+    size="$(disk_size_sectors "$disk")" || {
+      log_info "Skipping system-disk candidate with invalid size: $disk"
+      continue
+    }
+    if [ -z "$BEST" ] || [ "$size" -lt "$BEST" ]; then
+      BEST="$size"
+      TARGET="$disk"
+    fi
   done
-  [ -n "$TARGET" ] || TARGET="$(printf '%s\n' "$INTERNAL_POOL" | head -n1)"
-  [ -n "$TARGET" ] || fail "unable to select system disk"
+  [ -n "$TARGET" ] || fail "unable to select system disk (no candidate with a valid size)"
   is_safe_internal "$TARGET" || fail "selected system disk is no longer safe: $TARGET"
   log_info "Selected system disk: $TARGET"
 }

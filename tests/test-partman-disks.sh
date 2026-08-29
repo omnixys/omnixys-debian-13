@@ -72,13 +72,20 @@ reset_fixture() {
   : >"$WIPE_LOG"
 }
 
+# add_disk <name> <removable> [transport] [size_in_sectors]
+# A missing size leaves no /size sysfs node, which select_system_disk()
+# treats as an invalid candidate (fail-closed).
 add_disk() {
   local name="$1"
   local removable="$2"
   local transport="${3:-pci}"
+  local size="${4:-}"
   mkdir -p "$SYS/$name" "$FIXTURE/transports/$transport/$name"
   : >"$DEV/$name"
   printf '%s\n' "$removable" >"$SYS/$name/removable"
+  if [ -n "$size" ]; then
+    printf '%s\n' "$size" >"$SYS/$name/size"
+  fi
   ln -s "$FIXTURE/transports/$transport/$name" "$SYS/$name/device"
 }
 
@@ -110,9 +117,18 @@ run_partman() {
 }
 
 # Multiple internal disks plus two kinds of USB, install media, identity media,
-# and a mounted disk. Only the internal pool is wiped and NVMe wins selection.
+# and a mounted disk. Only the internal pool is wiped and the smallest disk
+# (nvme0n1) wins selection regardless of device class.
 reset_fixture multi
-for disk in nvme1n1 nvme0n1 vdb sda xvda mmcblk0; do add_disk "$disk" 0 pci; done
+# nvme0n1 (100) is deliberately the smallest internal disk; every other
+# internal disk is larger so pure size-based selection must pick it,
+# independent of device class or enumeration order.
+add_disk nvme1n1 0 pci 400
+add_disk nvme0n1 0 pci 100
+add_disk vdb 0 pci 300
+add_disk sda 0 pci 200
+add_disk xvda 0 pci 500
+add_disk mmcblk0 0 pci 600
 add_disk sdc 1 usb1
 add_disk sdd 0 usb2
 add_disk sde 0 pci
@@ -148,7 +164,7 @@ grep -qF '  /dev/sdg -> mounted at /mnt (ext4)' "$PARTMAN_LOG"
 # UTM/QEMU ARM64: an internal VirtIO disk remains eligible even when it has
 # existing, unmounted partitions. It is wiped once and selected as the target.
 reset_fixture utm_virtio
-add_disk vda 0 pci
+add_disk vda 0 pci 100
 for partition in vda1 vda2 vda3 vda4; do add_partition "$partition" vda; done
 mkdir -p "$FIXTURE/efi"
 DISK_LIST='/dev/vda\n'
@@ -172,7 +188,7 @@ grep -qF 'Selected recipe: UEFI/GPT' "$PARTMAN_LOG"
 
 # UTM plus protected media: only VirtIO may be wiped.
 reset_fixture utm_media
-add_disk vda 0 pci
+add_disk vda 0 pci 100
 add_disk sda 0 usb-install
 add_disk sdb 0 usb-identity
 add_partition sda1 sda
@@ -193,7 +209,7 @@ grep -qF '  /dev/sdb -> OMNIXYS_ID label' "$PARTMAN_LOG"
 
 # UEFI selection uses the EFI recipe.
 reset_fixture uefi
-add_disk nvme0n1 0 pci
+add_disk nvme0n1 0 pci 100
 mkdir -p "$FIXTURE/efi"
 DISK_LIST='/dev/nvme0n1\n'
 render_partman erase auto
@@ -201,14 +217,60 @@ run_partman
 grep -q 'method{ efi }' "$DEBCONF_LOG"
 grep -q 'mountpoint{ /boot/efi }' "$DEBCONF_LOG"
 
-# SATA-only selection remains deterministic.
+# SATA-only selection is decided by size, not alphabetical device order:
+# sda is the smaller disk so it wins even though it sorts first anyway.
 reset_fixture sata
-add_disk sdb 0 pci
-add_disk sda 0 pci
+add_disk sdb 0 pci 200
+add_disk sda 0 pci 100
 DISK_LIST='/dev/sdb\n/dev/sda\n'
 render_partman erase auto
 run_partman
 grep -Fxq 'partman-auto/disk /dev/sda' "$DEBCONF_LOG"
+
+# The smaller of two same-class disks wins, even against alphabetical order.
+reset_fixture size_smaller_wins
+add_disk sda 0 pci 200
+add_disk sdb 0 pci 100
+DISK_LIST='/dev/sda\n/dev/sdb\n'
+render_partman erase auto
+run_partman
+grep -Fxq 'partman-auto/disk /dev/sdb' "$DEBCONF_LOG"
+grep -qF 'Selected system disk: /dev/sdb' "$PARTMAN_LOG"
+
+# Equal sizes fall back to the first sorted inner disk (/dev/sda).
+reset_fixture size_tie
+add_disk sdb 0 pci 100
+add_disk sda 0 pci 100
+DISK_LIST='/dev/sdb\n/dev/sda\n'
+render_partman erase auto
+run_partman
+grep -Fxq 'partman-auto/disk /dev/sda' "$DEBCONF_LOG"
+
+# A candidate with an unknown size is never selected when a sized one exists.
+reset_fixture size_unknown
+add_disk sda 0 pci
+add_disk sdb 0 pci 100
+DISK_LIST='/dev/sda\n/dev/sdb\n'
+render_partman erase auto
+run_partman
+grep -qF 'Skipping system-disk candidate with invalid size: /dev/sda' "$PARTMAN_LOG"
+grep -Fxq 'partman-auto/disk /dev/sdb' "$DEBCONF_LOG"
+
+# When every candidate has an unknown size the install aborts, never picking
+# one arbitrarily.
+reset_fixture size_all_unknown
+add_disk sda 0 pci
+add_disk sdb 0 pci
+DISK_LIST='/dev/sda\n/dev/sdb\n'
+render_partman erase auto
+if run_partman; then
+  echo "selection of fully-unknown disks unexpectedly succeeded"
+  exit 1
+fi
+if grep -q '^partman-auto/disk ' "$DEBCONF_LOG"; then
+  echo "fully-unknown sizes still selected a target"
+  exit 1
+fi
 
 # Empty safe pool fails closed without selecting or wiping a disk.
 reset_fixture empty
@@ -241,8 +303,8 @@ grep -qF 'ERROR: No eligible internal installation disk found (list-devices retu
 
 # A wipe error fails before any target is written.
 reset_fixture wipe_failure
-add_disk nvme0n1 0 pci
-add_disk sda 0 pci
+add_disk nvme0n1 0 pci 100
+add_disk sda 0 pci 200
 DISK_LIST='/dev/nvme0n1\n/dev/sda\n'
 OMNIXYS_FAIL_WIPE_DISK=/dev/sda
 render_partman erase auto
@@ -258,7 +320,7 @@ fi
 
 # Partition-table reread failures and stale kernel partition entries are fatal.
 reset_fixture reread_failure
-add_disk vda 0 pci
+add_disk vda 0 pci 100
 DISK_LIST='/dev/vda\n'
 OMNIXYS_FAIL_REREAD_DISK=/dev/vda
 render_partman erase auto
@@ -274,7 +336,7 @@ if grep -q '^partman-auto/disk ' "$DEBCONF_LOG"; then
 fi
 
 reset_fixture stale_partitions
-add_disk vda 0 pci
+add_disk vda 0 pci 100
 DISK_LIST='/dev/vda\n'
 OMNIXYS_STALE_PARTITIONS_DISK=/dev/vda
 render_partman erase auto
@@ -287,8 +349,8 @@ grep -qF 'ERROR: stale partitions remain after reread: /dev/vda' "$PARTMAN_LOG"
 
 # LVM auto selects one disk but never performs the erase-mode mass wipe.
 reset_fixture lvm
-add_disk vdb 0 pci
-add_disk vda 0 pci
+add_disk vdb 0 pci 200
+add_disk vda 0 pci 100
 DISK_LIST='/dev/vdb\n/dev/vda\n'
 render_partman lvm auto
 run_partman
@@ -334,7 +396,7 @@ grep -qF '  /dev/sda -> USB sysfs path:' "$PARTMAN_LOG"
 
 # Debconf failures are fatal.
 reset_fixture debconf_failure
-add_disk vda 0 pci
+add_disk vda 0 pci 100
 DISK_LIST='/dev/vda\n'
 DEBCONF_FAIL_KEY=partman-auto/disk
 render_partman lvm auto
@@ -353,7 +415,13 @@ order_matrix_case() {
   reset_fixture "order-$label"
   local disk
   for disk in "${internals[@]}"; do
-    add_disk "$disk" 0 pci
+    # The expected disk is the smallest so pure size-based selection must pick
+    # it regardless of device class or enumeration order.
+    if [ "$disk" = "$expected" ]; then
+      add_disk "$disk" 0 pci 100
+    else
+      add_disk "$disk" 0 pci 200
+    fi
   done
   add_disk "$medium_disk" 0 usb-install
   add_partition "${medium_disk}1" "$medium_disk"
@@ -389,7 +457,7 @@ order_matrix_case medium_on_sdc sdc vda sda vda
 # --- Identity medium inserted mid-installation must be recognized on the fly
 # --- and protected by later tooling runs of the very same script.
 reset_fixture late_identity
-add_disk vda 0 pci
+add_disk vda 0 pci 100
 DISK_LIST='/dev/vda\n'
 render_partman erase auto
 # First pass: no identity medium exists yet, the internal disk is selected.
